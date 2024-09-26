@@ -7,18 +7,23 @@
 !> Additionally, the required data types for users of this module are reexported
 !> to hide the actual implementation details.
 module fpm_manifest
+    
+    use fpm_strings, only: string_t
+    use fpm_error, only : error_t, fatal_error
+    use fpm_toml, only : toml_table, read_package_file
+
     use fpm_manifest_example, only : example_config_t
     use fpm_manifest_executable, only : executable_config_t
     use fpm_manifest_dependency, only : dependency_config_t
     use fpm_manifest_library, only : library_config_t
     use fpm_manifest_preprocess, only : preprocess_config_t
     use fpm_manifest_package, only : package_config_t, new_package
-    use fpm_error, only : error_t, fatal_error
-    use fpm_toml, only : toml_table, read_package_file
     use fpm_manifest_test, only : test_config_t
-    use fpm_filesystem, only: join_path, exists, dirname, is_dir
+    
     use fpm_environment, only: os_is_unix
-    use fpm_strings, only: string_t
+    use fpm_filesystem, only: join_path, exists, dirname, is_dir
+    
+    
     implicit none
     private
 

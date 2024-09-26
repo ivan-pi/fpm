@@ -1,4 +1,4 @@
-add_library(fpm_dep
+add_library(tomlf
     toml-f/src/tomlf.f90
     toml-f/src/tomlf/structure.f90
     toml-f/src/tomlf/diagnostic.f90
@@ -34,12 +34,24 @@ add_library(fpm_dep
     toml-f/src/tomlf/de/abc.f90
     toml-f/src/tomlf/de/lexer.f90
     toml-f/src/tomlf/type.f90
-    M_CLI2/src/M_CLI2.F90
+)
+
+add_library(M_CLI2
+    M_CLI2/src/M_CLI2.F90)
+
+add_library(regex
     fortran-regex/src/regex.f90
+)
+
+add_library(jonquil
     jonquil/src/jonquil.f90
     jonquil/src/jonquil/parser.f90
     jonquil/src/jonquil/version.f90
     jonquil/src/jonquil/ser.f90
     jonquil/src/jonquil/lexer.f90
+)
+target_link_libraries(jonquil PRIVATE tomlf)
+
+add_library(shlex
     fortran-shlex/src/shlex_module.f90
 )

@@ -26,6 +26,7 @@ add_library(fpm_core
     src/fpm/manifest/library.f90
     src/fpm/manifest/meta.f90
     src/fpm/manifest/package.f90
+    src/fpm/manifest/package_impl.f90
     src/fpm/manifest/preprocess.f90
     src/fpm/manifest/profiles.f90
     src/fpm/manifest/test.f90
@@ -37,12 +38,14 @@ add_library(fpm_core
     src/fpm/installer.f90
     src/fpm/manifest.f90
     src/fpm/toml.f90
+    src/fpm/toml_impl.f90
     src/fpm/versioning.f90
     src/ptycheck/isatty.c
     src/ptycheck/iscygpty.c
     src/ptycheck/iscygpty.h
     src/filesystem_utilities.c
     src/fpm.f90
+    src/fpm_impl.f90
     src/fpm_backend.F90
     src/fpm_backend_console.f90
     src/fpm_backend_output.f90
@@ -65,7 +68,7 @@ add_library(fpm_core
 if (FPM_BOOTSTRAP)
     target_compile_definitions(fpm_core PUBLIC FPM_BOOTSTRAP)
 endif()
-target_link_libraries(fpm_core PRIVATE fpm_dep)
+target_link_libraries(fpm_core PRIVATE tomlf M_CLI2 regex jonquil shlex)
 
 add_executable(fpm app/main.f90)
 target_link_libraries(fpm PRIVATE fpm_core)
@@ -95,4 +98,5 @@ add_executable(fpm_test
     test/fpm_test/test_toml.f90
     test/fpm_test/test_versioning.f90
     test/fpm_test/testsuite.f90)
+
 target_link_libraries(fpm_test PRIVATE fpm_core)
