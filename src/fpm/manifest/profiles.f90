@@ -41,151 +41,27 @@
 !> files={"hello_world.f90"="-Wall -O3"}
 !>```
 !>
-module fpm_manifest_profile
+submodule (fpm_manifest) fpm_manifest_profile
+    
     use fpm_error, only : error_t, syntax_error, fatal_error, fpm_stop
-    use fpm_toml, only : toml_table, toml_key, toml_stat, get_value, serializable_t, set_value, &
+    use fpm_toml, only : toml_key, toml_stat, get_value, serializable_t, set_value, &
                          set_string, add_table
     use fpm_strings, only: lower
-    use fpm_environment, only: get_os_type, OS_UNKNOWN, OS_LINUX, OS_MACOS, OS_WINDOWS, &
+    use fpm_environment, only: get_os_type, OS_ALL, OS_UNKNOWN, OS_LINUX, OS_MACOS, OS_WINDOWS, &
                              OS_CYGWIN, OS_SOLARIS, OS_FREEBSD, OS_OPENBSD, OS_NAME
     use fpm_filesystem, only: join_path
+
     implicit none
-    public :: profile_config_t, new_profile, new_profiles, get_default_profiles, &
-            & info_profile, find_profile, DEFAULT_COMPILER
+
+    !new_profile, new_profiles, get_default_profiles, &
+    !        & info_profile, find_profile, DEFAULT_COMPILER
 
     !> Name of the default compiler
     character(len=*), parameter :: DEFAULT_COMPILER = 'gfortran'
-    integer, parameter :: OS_ALL = -1
     character(len=:), allocatable :: path
 
-    !> Type storing file name - file scope compiler flags pairs
-    type, extends(serializable_t) :: file_scope_flag
+contains
 
-      !> Name of the file
-      character(len=:), allocatable :: file_name
-
-      !> File scope flags
-      character(len=:), allocatable :: flags
-
-      contains
-
-          !> Serialization interface
-          procedure :: serializable_is_same => file_scope_same
-          procedure :: dump_to_toml => file_scope_dump
-          procedure :: load_from_toml => file_scope_load
-
-    end type file_scope_flag
-
-    !> Configuration meta data for a profile
-    type, extends(serializable_t) :: profile_config_t
-      !> Name of the profile
-      character(len=:), allocatable :: profile_name
-
-      !> Name of the compiler
-      character(len=:), allocatable :: compiler
-
-      !> Value repesenting OS
-      integer :: os_type = OS_ALL
-
-      !> Fortran compiler flags
-      character(len=:), allocatable :: flags
-
-      !> C compiler flags
-      character(len=:), allocatable :: c_flags
-
-      !> C++ compiler flags
-      character(len=:), allocatable :: cxx_flags
-
-      !> Link time compiler flags
-      character(len=:), allocatable :: link_time_flags
-
-      !> File scope flags
-      type(file_scope_flag), allocatable :: file_scope_flags(:)
-
-      !> Is this profile one of the built-in ones?
-      logical :: is_built_in = .false.
-
-      contains
-
-        !> Print information on this instance
-        procedure :: info
-
-        !> Serialization interface
-        procedure :: serializable_is_same => profile_same
-        procedure :: dump_to_toml => profile_dump
-        procedure :: load_from_toml => profile_load
-
-    end type profile_config_t
-
-    contains
-
-      !> Construct a new profile configuration from a TOML data structure
-      function new_profile(profile_name, compiler, os_type, flags, c_flags, cxx_flags, &
-                           link_time_flags, file_scope_flags, is_built_in) &
-                      & result(profile)
-
-        !> Name of the profile
-        character(len=*), intent(in) :: profile_name
-
-        !> Name of the compiler
-        character(len=*), intent(in) :: compiler
-
-        !> Type of the OS
-        integer, intent(in) :: os_type
-
-        !> Fortran compiler flags
-        character(len=*), optional, intent(in) :: flags
-
-        !> C compiler flags
-        character(len=*), optional, intent(in) :: c_flags
-
-        !> C++ compiler flags
-        character(len=*), optional, intent(in) :: cxx_flags
-
-        !> Link time compiler flags
-        character(len=*), optional, intent(in) :: link_time_flags
-
-        !> File scope flags
-        type(file_scope_flag), optional, intent(in) :: file_scope_flags(:)
-
-        !> Is this profile one of the built-in ones?
-        logical, optional, intent(in) :: is_built_in
-
-        type(profile_config_t) :: profile
-
-        profile%profile_name = profile_name
-        profile%compiler = compiler
-        profile%os_type = os_type
-        if (present(flags)) then
-          profile%flags = flags
-        else
-          profile%flags = ""
-        end if
-        if (present(c_flags)) then
-          profile%c_flags = c_flags
-        else
-          profile%c_flags = ""
-        end if
-        if (present(cxx_flags)) then
-          profile%cxx_flags = cxx_flags
-        else
-          profile%cxx_flags = ""
-        end if
-        if (present(link_time_flags)) then
-          profile%link_time_flags = link_time_flags
-        else
-          profile%link_time_flags = ""
-        end if
-        if (present(file_scope_flags)) then
-           profile%file_scope_flags = file_scope_flags
-        end if
-        if (present(is_built_in)) then
-           profile%is_built_in = is_built_in
-        else
-           profile%is_built_in = .false.
-        end if
-
-      end function new_profile
 
       !> Check if compiler name is a valid compiler name
       subroutine validate_compiler_name(compiler_name, is_valid)
@@ -378,7 +254,6 @@ module fpm_manifest_profile
         type(toml_key), allocatable :: file_list(:)
         type(file_scope_flag), allocatable :: file_scope_flags(:)
         integer :: ikey, ifile, stat
-        logical :: is_valid
 
         call get_value(table, 'flags', flags)
         call get_value(table, 'c-flags', c_flags)
@@ -716,128 +591,9 @@ module fpm_manifest_profile
         end do
       end subroutine new_profiles
 
-      !> Construct an array of built-in profiles
-      function get_default_profiles(error) result(default_profiles)
-
-        !> Error handling
-        type(error_t), allocatable, intent(out) :: error
-
-        type(profile_config_t), allocatable :: default_profiles(:)
-
-        default_profiles = [ &
-              & new_profile('release', &
-                & 'caf', &
-                & OS_ALL, &
-                & flags=' -O3 -Wimplicit-interface -fPIC -fmax-errors=1 -funroll-loops', &
-                & is_built_in=.true.), &
-              & new_profile('release', &
-                & 'gfortran', &
-                & OS_ALL, &
-                & flags=' -O3 -Wimplicit-interface -fPIC -fmax-errors=1 -funroll-loops -fcoarray=single', &
-                & is_built_in=.true.), &
-              & new_profile('release', &
-                & 'f95', &
-                & OS_ALL, &
-                & flags=' -O3 -Wimplicit-interface -fPIC -fmax-errors=1 -ffast-math -funroll-loops', &
-                & is_built_in=.true.), &
-              & new_profile('release', &
-                & 'nvfortran', &
-                & OS_ALL, &
-                & flags = ' -Mbackslash', &
-                & is_built_in=.true.), &
-              & new_profile('release', &
-                & 'ifort', &
-                & OS_ALL, &
-                & flags = ' -fp-model precise -pc64 -align all -error-limit 1 -reentrancy&
-                          & threaded -nogen-interfaces -assume byterecl', &
-                & is_built_in=.true.), &
-              & new_profile('release', &
-                & 'ifort', &
-                & OS_WINDOWS, &
-                & flags = ' /fp:precise /align:all /error-limit:1 /reentrancy:threaded&
-                          & /nogen-interfaces /assume:byterecl', &
-                & is_built_in=.true.), &
-              & new_profile('release', &
-                & 'ifx', &
-                & OS_ALL, &
-                & flags = ' -fp-model=precise -pc64 -align all -error-limit 1 -reentrancy&
-                          & threaded -nogen-interfaces -assume byterecl', &
-                & is_built_in=.true.), &
-              & new_profile('release', &
-                & 'ifx', &
-                & OS_WINDOWS, &
-                & flags = ' /fp:precise /align:all /error-limit:1 /reentrancy:threaded&
-                          & /nogen-interfaces /assume:byterecl', &
-                & is_built_in=.true.), &
-              & new_profile('release', &
-                &'nagfor', &
-                & OS_ALL, &
-                & flags = ' -O4 -coarray=single -PIC', &
-                & is_built_in=.true.), &
-              & new_profile('release', &
-                &'lfortran', &
-                & OS_ALL, &
-                & flags = ' flag_lfortran_opt', &
-                & is_built_in=.true.), &
-              & new_profile('debug', &
-                & 'caf', &
-                & OS_ALL, &
-                & flags = ' -Wall -Wextra -Wimplicit-interface -fPIC -fmax-errors=1 -g -fcheck=bounds&
-                          & -fcheck=array-temps -fbacktrace', &
-                & is_built_in=.true.), &
-              & new_profile('debug', &
-                & 'gfortran', &
-                & OS_ALL, &
-                & flags = ' -Wall -Wextra -Wimplicit-interface -fPIC -fmax-errors=1 -g -fcheck=bounds&
-                          & -fcheck=array-temps -fbacktrace -fcoarray=single', &
-                & is_built_in=.true.), &
-              & new_profile('debug', &
-                & 'f95', &
-                & OS_ALL, &
-                & flags = ' -Wall -Wextra -Wimplicit-interface -fPIC -fmax-errors=1 -g -fcheck=bounds&
-                          & -fcheck=array-temps -Wno-maybe-uninitialized -Wno-uninitialized -fbacktrace', &
-                & is_built_in=.true.), &
-              & new_profile('debug', &
-                & 'nvfortran', &
-                & OS_ALL, &
-                & flags = ' -Minform=inform -Mbackslash -g -Mbounds -Mchkptr -Mchkstk -traceback', &
-                & is_built_in=.true.), &
-              & new_profile('debug', &
-                & 'ifort', &
-                & OS_ALL, &
-                & flags = ' -warn all -check all -error-limit 1 -O0 -g -assume byterecl -traceback', &
-                & is_built_in=.true.), &
-              & new_profile('debug', &
-                & 'ifort', &
-                & OS_WINDOWS, &
-                & flags = ' /warn:all /check:all /error-limit:1&
-                          & /Od /Z7 /assume:byterecl /traceback', &
-                & is_built_in=.true.), &
-              & new_profile('debug', &
-                & 'ifx', &
-                & OS_ALL, &
-                & flags = ' -warn all -check all -error-limit 1 -O0 -g -assume byterecl -traceback', &
-                & is_built_in=.true.), &
-              & new_profile('debug', &
-                & 'ifx', &
-                & OS_WINDOWS, &
-                & flags = ' /warn:all /check:all /error-limit:1 /Od /Z7 /assume:byterecl', &
-                & is_built_in=.true.), &
-              & new_profile('debug', &
-                & 'ifx', &
-                & OS_WINDOWS, &
-                & flags = ' /warn:all /check:all /error-limit:1 /Od /Z7 /assume:byterecl', &
-                & is_built_in=.true.), &
-              & new_profile('debug', &
-                & 'lfortran', &
-                & OS_ALL, &
-                & flags = '', &
-                & is_built_in=.true.) &
-              &]
-      end function get_default_profiles
 
       !> Write information on instance
-      subroutine info(self, unit, verbosity)
+      module subroutine profile_info(self, unit, verbosity)
 
         !> Instance of the profile configuration
         class(profile_config_t), intent(in) :: self
@@ -872,7 +628,7 @@ module fpm_manifest_profile
             write(unit, fmt) "- compiler flags", self%flags
         end if
 
-      end subroutine info
+      end subroutine profile_info
 
       !> Print a representation of profile_config_t
       function info_profile(profile) result(s)
@@ -987,29 +743,23 @@ module fpm_manifest_profile
 
 
       logical function file_scope_same(this,that)
-          class(file_scope_flag), intent(in) :: this
-          class(serializable_t), intent(in) :: that
+          type(file_scope_flag), intent(in) :: this
+          type(file_scope_flag), intent(in) :: that
 
-          file_scope_same = .false.
+          logical :: file_name_equal, flags_equal
 
-          select type (other=>that)
-             type is (file_scope_flag)
-                if (allocated(this%file_name).neqv.allocated(other%file_name)) return
-                if (allocated(this%file_name)) then
-                    if (.not.(this%file_name==other%file_name)) return
-                endif
-                if (allocated(this%flags).neqv.allocated(other%flags)) return
-                if (allocated(this%flags)) then
-                    if (.not.(this%flags==other%flags)) return
-                endif
+          file_name_equal = .false.
+          if (allocated(this%file_name) .and. allocated(that%file_name)) then
+            file_name_equal = this%file_name == that%file_name
+          end if
 
-             class default
-                ! Not the same type
-                return
-          end select
+          flags_equal = .false.
+          if (allocated(this%flags) .and. allocated(that%flags)) then
+            flags_equal = this%flags == that%flags
+          end if
 
           !> All checks passed!
-          file_scope_same = .true.
+          file_scope_same = file_name_equal .and. flags_equal
 
     end function file_scope_same
 
@@ -1017,7 +767,7 @@ module fpm_manifest_profile
     subroutine file_scope_dump(self, table, error)
 
        !> Instance of the serializable object
-       class(file_scope_flag), intent(inout) :: self
+       type(file_scope_flag), intent(inout) :: self
 
        !> Data structure
        type(toml_table), intent(inout) :: table
@@ -1036,7 +786,7 @@ module fpm_manifest_profile
      subroutine file_scope_load(self, table, error)
 
         !> Instance of the serializable object
-        class(file_scope_flag), intent(inout) :: self
+        type(file_scope_flag), intent(inout) :: self
 
         !> Data structure
         type(toml_table), intent(inout) :: table
@@ -1049,13 +799,15 @@ module fpm_manifest_profile
 
      end subroutine file_scope_load
 
-      logical function profile_same(this,that)
+
+      module function profile_is_same(this,that)
           class(profile_config_t), intent(in) :: this
           class(serializable_t), intent(in) :: that
+          logical :: profile_is_same
 
           integer :: ii
 
-          profile_same = .false.
+          profile_is_same = .false.
 
           select type (other=>that)
              type is (profile_config_t)
@@ -1090,7 +842,7 @@ module fpm_manifest_profile
                     if (.not.size(this%file_scope_flags)==size(other%file_scope_flags)) return
                     do ii=1,size(this%file_scope_flags)
                         print *, 'check ii-th file scope: ',ii
-                       if (.not.this%file_scope_flags(ii)==other%file_scope_flags(ii)) return
+                       if (.not. file_scope_same(this%file_scope_flags(ii), other%file_scope_flags(ii))) return
                     end do
                 endif
 
@@ -1102,12 +854,12 @@ module fpm_manifest_profile
           end select
 
           !> All checks passed!
-          profile_same = .true.
+          profile_is_same = .true.
 
-    end function profile_same
+    end function profile_is_same
 
     !> Dump to toml table
-    subroutine profile_dump(self, table, error)
+    module subroutine profile_dump(self, table, error)
 
        !> Instance of the serializable object
        class(profile_config_t), intent(inout) :: self
@@ -1161,7 +913,7 @@ module fpm_manifest_profile
                     call fatal_error(error, "profile_config_t cannot create entry for file "//dep%file_name)
                     return
                  end if
-                 call dep%dump_to_toml(ptr, error)
+                 call file_scope_dump(dep, ptr, error)
                  if (allocated(error)) return
               end associate
            end do
@@ -1176,7 +928,7 @@ module fpm_manifest_profile
      end subroutine profile_dump
 
      !> Read from toml table (no checks made at this stage)
-     subroutine profile_load(self, table, error)
+     module subroutine profile_load(self, table, error)
 
         !> Instance of the serializable object
         class(profile_config_t), intent(inout) :: self
@@ -1225,7 +977,9 @@ module fpm_manifest_profile
                do jj = 1, size(dep_keys)
 
                    call get_value(ptr, dep_keys(jj), ptr_dep)
-                   call self%file_scope_flags(jj)%load_from_toml(ptr_dep, error)
+                   
+                   call file_scope_load(self%file_scope_flags(jj), ptr_dep, error)
+
                    if (allocated(error)) return
 
                end do
@@ -1236,4 +990,4 @@ module fpm_manifest_profile
      end subroutine profile_load
 
 
-end module fpm_manifest_profile
+end submodule fpm_manifest_profile

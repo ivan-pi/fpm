@@ -28,6 +28,9 @@ module fpm_environment
     integer, parameter, public :: OS_SOLARIS = 5
     integer, parameter, public :: OS_FREEBSD = 6
     integer, parameter, public :: OS_OPENBSD = 7
+
+    integer, parameter, public :: OS_ALL = -1
+
 contains
 
     !> Return string describing the OS type flag

@@ -1,33 +1,11 @@
-module fpm_manifest_fortran
+submodule (fpm_manifest) fpm_manifest_fortran
+    
     use fpm_error, only : error_t, syntax_error, fatal_error
-    use fpm_toml, only : toml_table, toml_key, toml_stat, get_value, serializable_t, set_value, set_string
-    implicit none
-    private
+    use fpm_toml, only : toml_key, toml_stat, get_value, serializable_t, set_value, set_string
+    
+    ! new_fortran_config
 
-    public :: fortran_config_t, new_fortran_config
-
-    !> Configuration data for Fortran
-    type, extends(serializable_t) :: fortran_config_t
-
-        !> Enable default implicit typing
-        logical :: implicit_typing = .false.
-
-        !> Enable implicit external interfaces
-        logical :: implicit_external = .false.
-
-        !> Form to use for all Fortran sources
-        character(:), allocatable :: source_form
-
-        contains
-
-            !> Serialization interface
-            procedure :: serializable_is_same => fortran_is_same
-            procedure :: dump_to_toml
-            procedure :: load_from_toml
-
-    end type fortran_config_t
-
-    character(len=*), parameter, private :: class_name = 'fortran_config_t'
+    character(len=*), parameter :: class_name = 'fortran_config_t'
 
 contains
 
@@ -111,9 +89,18 @@ contains
 
     end subroutine check
 
-  logical function fortran_is_same(this,that)
+    module subroutine fortran_info(self, unit, verbosity)
+        class(fortran_config_t), intent(in) :: self
+        integer, intent(in) :: unit
+        integer, intent(in), optional :: verbosity
+        error stop "fortran_info not implemented"
+    end subroutine
+
+
+  module function fortran_is_same(this,that)
     class(fortran_config_t), intent(in) :: this
     class(serializable_t), intent(in) :: that
+    logical :: fortran_is_same
 
     fortran_is_same = .false.
 
@@ -134,7 +121,7 @@ contains
   end function fortran_is_same
 
   !> Dump install config to toml table
-  subroutine dump_to_toml(self, table, error)
+  module subroutine fortran_dump(self, table, error)
 
     !> Instance of the serializable object
     class(fortran_config_t), intent(inout) :: self
@@ -152,10 +139,10 @@ contains
     call set_string(table, "source-form", self%source_form, error, class_name)
     if (allocated(error)) return
 
-  end subroutine dump_to_toml
+  end subroutine fortran_dump
 
   !> Read install config from toml table (no checks made at this stage)
-  subroutine load_from_toml(self, table, error)
+  module subroutine fortran_load(self, table, error)
 
     !> Instance of the serializable object
     class(fortran_config_t), intent(inout) :: self
@@ -172,7 +159,7 @@ contains
     if (allocated(error)) return
     call get_value(table, "source-form", self%source_form)
 
-  end subroutine load_from_toml
+  end subroutine fortran_load
 
 
-end module fpm_manifest_fortran
+end submodule fpm_manifest_fortran

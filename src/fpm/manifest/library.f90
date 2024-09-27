@@ -8,49 +8,20 @@
 !>include-dir = ["path1","path2"]
 !>build-script = "file"
 !>```
-module fpm_manifest_library
+submodule (fpm_manifest) fpm_manifest_library
+    
     use fpm_error, only : error_t, syntax_error
     use fpm_strings, only: string_t, string_cat, operator(==)
-    use fpm_toml, only : toml_table, toml_key, toml_stat, get_value, get_list, serializable_t, set_value, &
+    use fpm_toml, only : toml_key, toml_stat, get_value, get_list, serializable_t, set_value, &
                           set_list, set_string, get_value, get_list
-    implicit none
-    private
-
-    public :: library_config_t, new_library
-
-
-    !> Configuration meta data for a library
-    type, extends(serializable_t) :: library_config_t
-
-        !> Source path prefix
-        character(len=:), allocatable :: source_dir
-
-        !> Include path prefix
-        type(string_t), allocatable :: include_dir(:)
-
-        !> Alternative build script to be invoked
-        character(len=:), allocatable :: build_script
-
-    contains
-
-        !> Print information on this instance
-        procedure :: info
-
-        !> Serialization interface
-        procedure :: serializable_is_same => library_is_same
-        procedure :: dump_to_toml
-        procedure :: load_from_toml
-
-    end type library_config_t
-
-    character(*), parameter, private :: class_name = 'library_config_t'
-
+    
+    character(*), parameter:: class_name = 'library_config_t'
 
 contains
 
 
     !> Construct a new library configuration from a TOML data structure
-    subroutine new_library(self, table, error)
+    module subroutine new_library(self, table, error)
 
         !> Instance of the library configuration
         type(library_config_t), intent(out) :: self
@@ -111,7 +82,7 @@ contains
 
 
     !> Write information on instance
-    subroutine info(self, unit, verbosity)
+    module subroutine library_info(self, unit, verbosity)
 
         !> Instance of the library configuration
         class(library_config_t), intent(in) :: self
@@ -144,11 +115,12 @@ contains
             write(unit, fmt) "- custom build", self%build_script
         end if
 
-    end subroutine info
+    end subroutine library_info
 
-    logical function library_is_same(this,that)
-       class(library_config_t), intent(in) :: this
-       class(serializable_t), intent(in) :: that
+    module function library_is_same(this,that)
+        class(library_config_t), intent(in) :: this
+        class(serializable_t), intent(in) :: that
+        logical :: library_is_same
 
         library_is_same = .false.
 
@@ -170,7 +142,7 @@ contains
     end function library_is_same
 
     !> Dump install config to toml table
-    subroutine dump_to_toml(self, table, error)
+    module subroutine library_dump(self, table, error)
 
         !> Instance of the serializable object
         class(library_config_t), intent(inout) :: self
@@ -188,10 +160,10 @@ contains
         call set_list(table, "include-dir", self%include_dir, error)
         if (allocated(error)) return
 
-    end subroutine dump_to_toml
+    end subroutine library_dump
 
     !> Read install config from toml table (no checks made at this stage)
-    subroutine load_from_toml(self, table, error)
+    module subroutine library_load(self, table, error)
 
         !> Instance of the serializable object
         class(library_config_t), intent(inout) :: self
@@ -208,7 +180,7 @@ contains
         if (allocated(error)) return
         call get_list(table, "include-dir", self%include_dir, error)
 
-    end subroutine load_from_toml
+    end subroutine library_load
 
 
-end module fpm_manifest_library
+end submodule fpm_manifest_library

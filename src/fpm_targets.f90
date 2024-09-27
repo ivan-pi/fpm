@@ -33,7 +33,7 @@ use fpm_filesystem, only: dirname, join_path, canon_path
 use fpm_strings, only: string_t, operator(.in.), string_cat, fnv_1a, resize, lower, str_ends_with
 use fpm_compiler, only: get_macros
 use fpm_sources, only: get_exe_name_with_suffix
-use fpm_manifest_preprocess, only: preprocess_config_t
+use fpm_manifest, only: preprocess_config_t
 implicit none
 
 private

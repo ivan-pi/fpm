@@ -25,16 +25,19 @@ add_library(fpm_core
     src/fpm/manifest/install.f90
     src/fpm/manifest/library.f90
     src/fpm/manifest/meta.f90
+    src/fpm/manifest/meta_request.f90
     src/fpm/manifest/package.f90
-    src/fpm/manifest/package_impl.f90
+# src/fpm/manifest/package_impl.f90
     src/fpm/manifest/preprocess.f90
     src/fpm/manifest/profiles.f90
     src/fpm/manifest/test.f90
     src/fpm/dependency.f90
+    src/fpm/dependency_node.f90
+    src/fpm/dependency_tree.f90
     src/fpm/downloader.f90
-    src/fpm/error.f90
     src/fpm/fpm_release.F90
     src/fpm/git.f90
+    src/fpm/git_impl.f90
     src/fpm/installer.f90
     src/fpm/manifest.f90
     src/fpm/toml.f90
@@ -46,22 +49,28 @@ add_library(fpm_core
     src/filesystem_utilities.c
     src/fpm.f90
     src/fpm_impl.f90
-    src/fpm_backend.F90
+    src/fpm_backend.f90
+    src/fpm_backend_impl.F90
     src/fpm_backend_console.f90
     src/fpm_backend_output.f90
     src/fpm_command_line.f90
     src/fpm_compiler.F90
     src/fpm_environment.c
     src/fpm_environment.f90
+    src/fpm_error.f90
     src/fpm_filesystem.F90
     src/fpm_meta.f90
+    src/fpm_meta_impl.f90
     src/fpm_model.f90
+    src/fpm_model_impl.f90
     src/fpm_os.c
     src/fpm_os.F90
     src/fpm_pkg_config.f90
     src/fpm_settings.f90
     src/fpm_source_parsing.f90
+    src/fpm_source_parsing_impl.f90
     src/fpm_sources.f90
+    src/fpm_sources_impl.f90
     src/fpm_strings.f90
     src/fpm_targets.f90)
 

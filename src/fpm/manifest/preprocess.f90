@@ -10,53 +10,19 @@
 !> macros = []
 !> ```
 
-module fpm_manifest_preprocess
+submodule (fpm_manifest) fpm_manifest_preprocess
+   
    use fpm_error, only : error_t, syntax_error
    use fpm_strings, only : string_t, operator(==)
-   use fpm_toml, only : toml_table, toml_key, toml_stat, get_value, get_list, serializable_t, set_value, set_list, &
+   use fpm_toml, only : toml_key, toml_stat, get_value, get_list, serializable_t, set_value, set_list, &
                         set_string
+
+   use fpm_manifest, only: preprocess_config_t
+
    use,intrinsic :: iso_fortran_env, only : stderr=>error_unit
    implicit none
-   private
 
-   public :: preprocess_config_t, new_preprocess_config, new_preprocessors, operator(==)
-
-   !> Configuration meta data for a preprocessor
-   type, extends(serializable_t) :: preprocess_config_t
-
-      !> Name of the preprocessor
-      character(len=:), allocatable :: name
-
-      !> Suffixes of the files to be preprocessed
-      type(string_t), allocatable :: suffixes(:)
-
-      !> Directories to search for files to be preprocessed
-      type(string_t), allocatable :: directories(:)
-
-      !> Macros to be defined for the preprocessor
-      type(string_t), allocatable :: macros(:)
-
-   contains
-
-      !> Print information on this instance
-      procedure :: info
-
-      !> Serialization interface
-      procedure :: serializable_is_same => preprocess_is_same
-      procedure :: dump_to_toml
-      procedure :: load_from_toml
-
-      !> Operations
-      procedure :: destroy
-      procedure :: add_config
-
-      !> Properties
-      procedure :: is_cpp
-      procedure :: is_fypp
-
-   end type preprocess_config_t
-
-   character(*), parameter, private :: class_name = 'preprocess_config_t'
+   character(*), parameter :: class_name = 'preprocess_config_t'
 
 contains
 
@@ -151,7 +117,7 @@ contains
    end subroutine new_preprocessors
 
    !> Write information on this instance
-   subroutine info(self, unit, verbosity)
+   module subroutine preprocess_info(self, unit, verbosity)
 
       !> Instance of the preprocess configuration
       class(preprocess_config_t), intent(in) :: self
@@ -196,11 +162,12 @@ contains
          end do
       end if
 
-   end subroutine info
+   end subroutine preprocess_info
 
-   logical function preprocess_is_same(this,that)
+   module function preprocess_is_same(this,that)
       class(preprocess_config_t), intent(in) :: this
       class(serializable_t), intent(in) :: that
+      logical :: preprocess_is_same
 
       integer :: istr
 
@@ -228,7 +195,7 @@ contains
     end function preprocess_is_same
 
     !> Dump install config to toml table
-    subroutine dump_to_toml(self, table, error)
+    module subroutine preprocess_dump(self, table, error)
 
        !> Instance of the serializable object
        class(preprocess_config_t), intent(inout) :: self
@@ -248,10 +215,10 @@ contains
        call set_list(table, "macros", self%macros, error)
        if (allocated(error)) return
 
-     end subroutine dump_to_toml
+     end subroutine preprocess_dump
 
      !> Read install config from toml table (no checks made at this stage)
-     subroutine load_from_toml(self, table, error)
+     module subroutine preprocess_load(self, table, error)
 
         !> Instance of the serializable object
         class(preprocess_config_t), intent(inout) :: self
@@ -270,25 +237,14 @@ contains
         call get_list(table, "macros", self%macros, error)
         if (allocated(error)) return
 
-     end subroutine load_from_toml
-
-    !> Clean preprocessor structure
-    elemental subroutine destroy(this)
-       class(preprocess_config_t), intent(inout) :: this
-
-       if (allocated(this%name))deallocate(this%name)
-       if (allocated(this%suffixes))deallocate(this%suffixes)
-       if (allocated(this%directories))deallocate(this%directories)
-       if (allocated(this%macros))deallocate(this%macros)
-
-    end subroutine destroy
+     end subroutine preprocess_load
 
     !> Add preprocessor settings
-    subroutine add_config(this,that)
+    module subroutine preprocess_add_config(this,that)
        class(preprocess_config_t), intent(inout) :: this
         type(preprocess_config_t), intent(in) :: that
 
-        if (.not.that%is_cpp()) then
+        if (.not. preprocess_is_cpp(that)) then
             write(stderr, '(a)') 'Warning: Preprocessor ' // that%name // &
                                  ' is not supported; will ignore it'
             return
@@ -323,20 +279,22 @@ contains
             end if
         endif
 
-    end subroutine add_config
+    end subroutine preprocess_add_config
 
     ! Check cpp
-    logical function is_cpp(this)
+    module function preprocess_is_cpp(this)
        class(preprocess_config_t), intent(in) :: this
-       is_cpp = .false.
-       if (allocated(this%name)) is_cpp = this%name == "cpp"
-    end function is_cpp
+       logical :: preprocess_is_cpp
+       preprocess_is_cpp = .false.
+       if (allocated(this%name)) preprocess_is_cpp = this%name == "cpp"
+    end function preprocess_is_cpp
 
     ! Check cpp
-    logical function is_fypp(this)
+    module function preprocess_is_fypp(this)
        class(preprocess_config_t), intent(in) :: this
-       is_fypp = .false.
-       if (allocated(this%name)) is_fypp = this%name == "fypp"
-    end function is_fypp
+       logical :: preprocess_is_fypp
+       preprocess_is_fypp = .false.
+       if (allocated(this%name)) preprocess_is_fypp = this%name == "fypp"
+    end function preprocess_is_fypp
 
-end module fpm_manifest_preprocess
+end submodule fpm_manifest_preprocess

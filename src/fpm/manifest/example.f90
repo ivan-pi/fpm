@@ -14,33 +14,23 @@
 !>link = ["lib"]
 !>[example.dependencies]
 !>```
-module fpm_manifest_example
-    use fpm_manifest_dependency, only : dependency_config_t, new_dependencies
-    use fpm_manifest_executable, only : executable_config_t
+submodule (fpm_manifest) fpm_manifest_example
+
+    !use fpm_manifest_dependency, only : dependency_config_t, new_dependencies
+    !use fpm_manifest_executable, only : executable_config_t
+
     use fpm_error, only : error_t, syntax_error, bad_name_error
-    use fpm_toml, only : toml_table, toml_key, toml_stat, get_value, get_list
+    use fpm_toml, only : toml_key, toml_stat, get_value, get_list
+    
     implicit none
-    private
 
-    public :: example_config_t, new_example
-
-
-    !> Configuation meta data for an example
-    type, extends(executable_config_t) :: example_config_t
-
-    contains
-
-        !> Print information on this instance
-        procedure :: info
-
-    end type example_config_t
-
+!    public :: example_config_t, new_example
 
 contains
 
 
     !> Construct a new example configuration from a TOML data structure
-    subroutine new_example(self, table, error)
+    module subroutine new_example(self, table, error)
 
         !> Instance of the example configuration
         type(example_config_t), intent(out) :: self
@@ -125,7 +115,7 @@ contains
 
 
     !> Write information on instance
-    subroutine info(self, unit, verbosity)
+    module subroutine example_info(self, unit, verbosity)
 
         !> Instance of the example configuration
         class(example_config_t), intent(in) :: self
@@ -172,7 +162,7 @@ contains
             end do
         end if
 
-    end subroutine info
+    end subroutine example_info
 
 
-end module fpm_manifest_example
+end submodule fpm_manifest_example

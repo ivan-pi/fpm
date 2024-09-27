@@ -5,38 +5,17 @@
 !>```toml
 !>library = bool
 !>```
-module fpm_manifest_install
+submodule (fpm_manifest) fpm_manifest_install
+
   use fpm_error, only : error_t, fatal_error, syntax_error
-  use fpm_toml, only : toml_table, toml_key, toml_stat, get_value, set_value, serializable_t
-  implicit none
-  private
+  use fpm_toml, only : toml_key, toml_stat, get_value, set_value, serializable_t
 
-  public :: install_config_t, new_install_config
-
-  !> Configuration data for installation
-  type, extends(serializable_t) :: install_config_t
-
-    !> Install library with this project
-    logical :: library = .false.
-
-  contains
-
-    !> Print information on this instance
-    procedure :: info
-
-    !> Serialization interface
-    procedure :: serializable_is_same => install_conf_same
-    procedure :: dump_to_toml
-    procedure :: load_from_toml
-
-  end type install_config_t
-
-  character(*), parameter, private :: class_name = 'install_config_t'
+  character(*), parameter :: class_name = 'install_config_t'
 
 contains
 
   !> Create a new installation configuration from a TOML data structure
-  subroutine new_install_config(self, table, error)
+  module subroutine new_install_config(self, table, error)
 
     !> Instance of the install configuration
     type(install_config_t), intent(out) :: self
@@ -84,7 +63,7 @@ contains
   end subroutine check
 
   !> Write information on install configuration instance
-  subroutine info(self, unit, verbosity)
+  module subroutine install_info(self, unit, verbosity)
 
     !> Instance of the build configuration
     class(install_config_t), intent(in) :: self
@@ -110,13 +89,14 @@ contains
     write(unit, fmt) " - library install", &
       & trim(merge("enabled ", "disabled", self%library))
 
-  end subroutine info
+  end subroutine install_info
 
-  logical function install_conf_same(this,that)
+  module function install_is_same(this,that)
     class(install_config_t), intent(in) :: this
     class(serializable_t), intent(in) :: that
+    logical :: install_is_same
 
-    install_conf_same = .false.
+    install_is_same = .false.
 
     select type (other=>that)
        type is (install_config_t)
@@ -127,12 +107,12 @@ contains
     end select
 
     !> All checks passed!
-    install_conf_same = .true.
+    install_is_same = .true.
 
-  end function install_conf_same
+  end function install_is_same
 
   !> Dump install config to toml table
-  subroutine dump_to_toml(self, table, error)
+  module subroutine install_dump(self, table, error)
 
     !> Instance of the serializable object
     class(install_config_t), intent(inout) :: self
@@ -145,10 +125,10 @@ contains
 
     call set_value(table, "library", self%library, error, class_name)
 
-  end subroutine dump_to_toml
+  end subroutine install_dump
 
   !> Read install config from toml table (no checks made at this stage)
-  subroutine load_from_toml(self, table, error)
+  module subroutine install_load(self, table, error)
 
     !> Instance of the serializable object
     class(install_config_t), intent(inout) :: self
@@ -164,6 +144,6 @@ contains
     call get_value(table, "library", self%library, error, class_name)
     if (allocated(error)) return
 
-  end subroutine load_from_toml
+  end subroutine install_load
 
-end module fpm_manifest_install
+end submodule fpm_manifest_install

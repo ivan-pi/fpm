@@ -10,49 +10,19 @@
 !>link = ["lib"]
 !>[executable.dependencies]
 !>```
-module fpm_manifest_executable
-    use fpm_manifest_dependency, only : dependency_config_t, new_dependencies, resize
+submodule (fpm_manifest) fpm_manifest_executable
+    
     use fpm_error, only : error_t, syntax_error, bad_name_error, fatal_error
+    
     use fpm_strings, only : string_t, operator(==)
-    use fpm_toml, only : toml_table, toml_key, toml_stat, get_value, get_list, serializable_t, add_table, &
+    
+    use fpm_toml, only : toml_key, toml_stat, get_value, get_list, serializable_t, add_table, &
                           set_string, set_list
+
     implicit none
-    private
+    !public :: new_executable
 
-    public :: executable_config_t, new_executable
-
-
-    !> Configuation meta data for an executable
-    type, extends(serializable_t) :: executable_config_t
-
-        !> Name of the resulting executable
-        character(len=:), allocatable :: name
-
-        !> Source directory for collecting the executable
-        character(len=:), allocatable :: source_dir
-
-        !> Name of the source file declaring the main program
-        character(len=:), allocatable :: main
-
-        !> Dependency meta data for this executable
-        type(dependency_config_t), allocatable :: dependency(:)
-
-        !> Libraries to link against
-        type(string_t), allocatable :: link(:)
-
-    contains
-
-        !> Print information on this instance
-        procedure :: info
-
-        !> Serialization interface
-        procedure :: serializable_is_same => exe_is_same
-        procedure :: dump_to_toml
-        procedure :: load_from_toml
-
-    end type executable_config_t
-
-    character(*), parameter, private :: class_name = 'executable_config_t'
+    character(*), parameter :: class_name = 'executable_config_t'
 
 
 contains
@@ -144,7 +114,7 @@ contains
 
 
     !> Write information on instance
-    subroutine info(self, unit, verbosity)
+    module subroutine executable_info(self, unit, verbosity)
 
         !> Instance of the executable configuration
         class(executable_config_t), intent(in) :: self
@@ -191,12 +161,13 @@ contains
             end do
         end if
 
-    end subroutine info
+    end subroutine executable_info
 
 
-    logical function exe_is_same(this,that)
+    module function executable_is_same(this,that) result(exe_is_same)
         class(executable_config_t), intent(in) :: this
         class(serializable_t), intent(in) :: that
+        logical :: exe_is_same
 
         integer :: ii
 
@@ -226,10 +197,10 @@ contains
         !> All checks passed!
         exe_is_same = .true.
 
-    end function exe_is_same
+    end function executable_is_same
 
     !> Dump install config to toml table
-    subroutine dump_to_toml(self, table, error)
+    module subroutine executable_dump(self, table, error)
 
         !> Instance of the serializable object
         class(executable_config_t), intent(inout) :: self
@@ -288,10 +259,10 @@ contains
 
         1 format('UNNAMED_DEPENDENCY_',i0)
 
-    end subroutine dump_to_toml
+    end subroutine executable_dump
 
     !> Read install config from toml table (no checks made at this stage)
-    subroutine load_from_toml(self, table, error)
+    module subroutine executable_load(self, table, error)
 
         !> Instance of the serializable object
         class(executable_config_t), intent(inout) :: self
@@ -343,7 +314,7 @@ contains
             endif
         end do find_deps_table
 
-    end subroutine load_from_toml
+    end subroutine executable_load
 
 
-end module fpm_manifest_executable
+end submodule

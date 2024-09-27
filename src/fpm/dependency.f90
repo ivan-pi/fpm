@@ -61,9 +61,13 @@ module fpm_dependency
   use fpm_filesystem, only: exists, join_path, mkdir, canon_path, windows_path, list_files, is_dir, basename, &
                             os_delete_dir, get_temp_filename
   use fpm_git, only: git_target_revision, git_target_default, git_revision, serializable_t
-  use fpm_manifest, only: package_config_t, dependency_config_t, get_package_data
-  use fpm_manifest_dependency, only: manifest_has_changed, dependency_destroy
-  use fpm_manifest_preprocess, only: operator(==)
+  
+  use fpm_manifest, only: package_config_t, dependency_config_t, get_package_data, &
+    manifest_has_changed
+
+!  use fpm_manifest_dependency, only: manifest_has_changed, dependency_destroy
+!  use fpm_manifest_preprocess, only: operator(==)
+
   use fpm_strings, only: string_t, operator(.in.)
   use fpm_toml, only: toml_table, toml_key, toml_error, toml_serialize, &
                       get_value, set_value, add_table, toml_load, toml_stat, set_string
@@ -72,11 +76,14 @@ module fpm_dependency
   use fpm_downloader, only: downloader_t
   use jonquil, only: json_object
   use fpm_strings, only: str
+
   implicit none
   private
 
   public :: dependency_tree_t, new_dependency_tree, dependency_node_t, new_dependency_node, resize, &
             & check_and_read_pkg_data, destroy_dependency_node
+
+  public :: dependency_destroy
 
   !> Overloaded reallocation interface
   interface resize
@@ -100,20 +107,100 @@ module fpm_dependency
   contains
     !> Update dependency from project manifest.
     procedure :: register
+    
     !> Get dependency from the registry.
     procedure :: get_from_registry
     procedure, private :: get_from_local_registry
+    
     !> Print information on this instance
-    procedure :: info
+    procedure :: info => node_info
 
     !> Serialization interface
-    procedure :: serializable_is_same => dependency_node_is_same
+    procedure :: serializable_is_same => node_is_same
     procedure :: dump_to_toml => node_dump_to_toml
     procedure :: load_from_toml => node_load_from_toml
 
   end type dependency_node_t
 
-  !> Respresentation of a projects dependencies
+
+  interface
+    !> Update dependency from project manifest
+    module subroutine register(self, package, root, fetch, revision, error)
+      !> Instance of the dependency node
+      class(dependency_node_t), intent(inout) :: self
+      !> Package configuration data
+      type(package_config_t), intent(in) :: package
+      !> Project has been fetched
+      logical, intent(in) :: fetch
+      !> Root directory of the project
+      character(len=*), intent(in) :: root
+      !> Git revision of the project
+      character(len=*), intent(in), optional :: revision
+      !> Error handling
+      type(error_t), allocatable, intent(out) :: error
+    end subroutine
+    !> Get a dependency from the registry. Whether the dependency is fetched
+    !> from a local, a custom remote or the official registry is determined
+    !> by the global configuration settings.
+    module subroutine get_from_registry(self, target_dir, global_settings, error, downloader_)
+      !> Instance of the dependency configuration.
+      class(dependency_node_t), intent(in) :: self
+      !> The target directory of the dependency.
+      character(:), allocatable, intent(out) :: target_dir
+      !> Global configuration settings.
+      type(fpm_global_settings), intent(in) :: global_settings
+      !> Error handling.
+      type(error_t), allocatable, intent(out) :: error
+      !> Downloader instance.
+      class(downloader_t), optional, intent(in) :: downloader_
+    end subroutine
+    !> Get the dependency from a local registry.
+    module subroutine get_from_local_registry(self, target_dir, registry_path, error)
+      !> Instance of the dependency configuration.
+      class(dependency_node_t), intent(in) :: self
+      !> The target directory to download the dependency to.
+      character(:), allocatable, intent(out) :: target_dir
+      !> The path to the local registry.
+      character(*), intent(in) :: registry_path
+      !> Error handling.
+      type(error_t), allocatable, intent(out) :: error
+    end subroutine
+    !> Write information on instance
+    module subroutine node_info(self, unit, verbosity)
+      !> Instance of the dependency configuration
+      class(dependency_node_t), intent(in) :: self
+      !> Unit for IO
+      integer, intent(in) :: unit
+      !> Verbosity of the printout
+      integer, intent(in), optional :: verbosity
+    end subroutine
+    !> Check that two dependency nodes are equal
+    module logical function node_is_same(this,that)
+      class(dependency_node_t), intent(in) :: this
+      class(serializable_t), intent(in) :: that
+    end function
+    !> Dump dependency to toml table
+    module subroutine node_dump_to_toml(self, table, error)
+      !> Instance of the serializable object
+      class(dependency_node_t), intent(inout) :: self
+      !> Data structure
+      type(toml_table), intent(inout) :: table
+      !> Error handling
+      type(error_t), allocatable, intent(out) :: error
+    end subroutine
+    !> Read dependency from toml table (no checks made at this stage)
+    module subroutine node_load_from_toml(self, table, error)
+      !> Instance of the serializable object
+      class(dependency_node_t), intent(inout) :: self
+      !> Data structure
+      type(toml_table), intent(inout) :: table
+      !> Error handling
+      type(error_t), allocatable, intent(out) :: error
+    end subroutine
+  end interface
+
+
+  !> Representation of a projects dependencies
   !>
   !> The dependencies are stored in a simple array for now, this can be replaced
   !> with a binary-search tree or a hash table in the future.
@@ -126,7 +213,7 @@ module fpm_dependency
     character(len=:), allocatable :: dep_dir
     !> Number of currently registered dependencies
     integer :: ndep = 0
-    !> Flattend list of all dependencies
+    !> Flattened list of all dependencies
     type(dependency_node_t), allocatable :: dep(:)
     !> Cache file
     character(len=:), allocatable :: cache
@@ -192,10 +279,224 @@ module fpm_dependency
 
   end type dependency_tree_t
 
+
+  interface
+    module subroutine add_project(self, package, error)
+      !> Instance of the dependency tree
+      class(dependency_tree_t), intent(inout) :: self
+      !> Project configuration to add
+      type(package_config_t), intent(in) :: package
+      !> Error handling
+      type(error_t), allocatable, intent(out) :: error
+    end subroutine
+    !> Add a project and its dependencies to the dependency tree
+    recursive module subroutine add_project_dependencies(self, package, root, main, error)
+      !> Instance of the dependency tree
+      class(dependency_tree_t), intent(inout) :: self
+      !> Project configuration to add
+      type(package_config_t), intent(in) :: package
+      !> Current project root directory
+      character(len=*), intent(in) :: root
+      !> Is the main project
+      logical, intent(in) :: main
+      !> Error handling
+      type(error_t), allocatable, intent(out) :: error
+    end subroutine
+    !> Add a list of dependencies to the dependency tree
+    module subroutine add_dependencies(self, dependency, error)
+      !> Instance of the dependency tree
+      class(dependency_tree_t), intent(inout) :: self
+      !> Dependency configuration to add
+      type(dependency_config_t), intent(in) :: dependency(:)
+      !> Error handling
+      type(error_t), allocatable, intent(out) :: error
+    end subroutine
+    !> Add a single dependency node to the dependency tree
+    !> Dependency nodes contain additional information (version, git, revision)
+    module subroutine add_dependency_node(self, dependency, error)
+      !> Instance of the dependency tree
+      class(dependency_tree_t), intent(inout) :: self
+      !> Dependency configuration to add
+      type(dependency_node_t), intent(in) :: dependency
+      !> Error handling
+      type(error_t), allocatable, intent(out) :: error
+    end subroutine
+    !> Add a single dependency to the dependency tree
+    module subroutine add_dependency(self, dependency, error)
+      !> Instance of the dependency tree
+      class(dependency_tree_t), intent(inout) :: self
+      !> Dependency configuration to add
+      type(dependency_config_t), intent(in) :: dependency
+      !> Error handling
+      type(error_t), allocatable, intent(out) :: error
+    end subroutine
+  end interface
+
+
+  interface
+    !> Resolve all dependencies in the tree
+    module subroutine resolve_dependencies(self, root, error)
+      !> Instance of the dependency tree
+      class(dependency_tree_t), intent(inout) :: self
+      !> Current installation prefix
+      character(len=*), intent(in) :: root
+      !> Error handling
+      type(error_t), allocatable, intent(out) :: error
+    end subroutine
+    !> Resolve a single dependency node
+    module subroutine resolve_dependency(self, dependency, global_settings, root, error)
+      !> Instance of the dependency tree
+      class(dependency_tree_t), intent(inout) :: self
+      !> Dependency configuration to add
+      type(dependency_node_t), intent(inout) :: dependency
+      !> Global configuration settings.
+      type(fpm_global_settings), intent(in) :: global_settings
+      !> Current installation prefix
+      character(len=*), intent(in) :: root
+      !> Error handling
+      type(error_t), allocatable, intent(out) :: error
+    end subroutine
+
+    !> True if dependency is part of the tree
+    pure module function has_dependency(self, dependency)
+      !> Instance of the dependency tree
+      class(dependency_tree_t), intent(in) :: self
+      !> Dependency configuration to check
+      class(dependency_node_t), intent(in) :: dependency
+      logical :: has_dependency
+    end function
+
+    !> Find a dependency in the dependency tree
+    pure module function find_name(self, name) result(pos)
+      !> Instance of the dependency tree
+      class(dependency_tree_t), intent(in) :: self
+      !> Dependency configuration to add
+      character(len=*), intent(in) :: name
+      !> Index of the dependency
+      integer :: pos
+    end function
+
+    !> Check if we are done with the dependency resolution
+    pure module function finished(self)
+      !> Instance of the dependency tree
+      class(dependency_tree_t), intent(in) :: self
+      !> All dependencies are updated
+      logical :: finished
+    end function
+  end interface
+
+
+  interface
+    !> Read dependency tree from file
+    module subroutine load_cache_from_file(self, file, error)
+      !> Instance of the dependency tree
+      class(dependency_tree_t), intent(inout) :: self
+      !> File name
+      character(len=*), intent(in) :: file
+      !> Error handling
+      type(error_t), allocatable, intent(out) :: error
+    end subroutine
+    !> Read dependency tree from file
+    module subroutine load_cache_from_unit(self, unit, error)
+      !> Instance of the dependency tree
+      class(dependency_tree_t), intent(inout) :: self
+      !> File name
+      integer, intent(in) :: unit
+      !> Error handling
+      type(error_t), allocatable, intent(out) :: error
+    end subroutine
+    !> Read dependency tree from TOML data structure
+    module subroutine load_cache_from_toml(self, table, error)
+      !> Instance of the dependency tree
+      class(dependency_tree_t), intent(inout) :: self
+      !> Data structure
+      type(toml_table), intent(inout) :: table
+      !> Error handling
+      type(error_t), allocatable, intent(out) :: error
+    end subroutine
+
+    !> Write dependency tree to file
+    module subroutine dump_cache_to_file(self, file, error)
+      !> Instance of the dependency tree
+      class(dependency_tree_t), intent(inout) :: self
+      !> File name
+      character(len=*), intent(in) :: file
+      !> Error handling
+      type(error_t), allocatable, intent(out) :: error
+    end subroutine
+    !> Write dependency tree to file
+    module subroutine dump_cache_to_unit(self, unit, error)
+      !> Instance of the dependency tree
+      class(dependency_tree_t), intent(inout) :: self
+      !> Formatted unit
+      integer, intent(in) :: unit
+      !> Error handling
+      type(error_t), allocatable, intent(out) :: error
+    end subroutine
+    !> Write dependency tree to TOML datastructure
+    module subroutine dump_cache_to_toml(self, table, error)
+      !> Instance of the dependency tree
+      class(dependency_tree_t), intent(inout) :: self
+      !> Data structure
+      type(toml_table), intent(inout) :: table
+      !> Error handling
+      type(error_t), allocatable, intent(out) :: error
+    end subroutine
+  end interface
+
+
+
+  interface
+    !> Check that two dependency trees are equal
+    module function dependency_tree_is_same(this,that)
+        class(dependency_tree_t), intent(in) :: this
+        class(serializable_t), intent(in) :: that
+        logical :: dependency_tree_is_same
+    end function
+    !> Dump dependency to toml table
+    module subroutine tree_dump_to_toml(self, table, error)
+
+        !> Instance of the serializable object
+        class(dependency_tree_t), intent(inout) :: self
+
+        !> Data structure
+        type(toml_table), intent(inout) :: table
+
+        !> Error handling
+        type(error_t), allocatable, intent(out) :: error
+    end subroutine
+    !> Read dependency from toml table (no checks made at this stage)
+    module subroutine tree_load_from_toml(self, table, error)
+
+        !> Instance of the serializable object
+        class(dependency_tree_t), intent(inout) :: self
+
+        !> Data structure
+        type(toml_table), intent(inout) :: table
+
+        !> Error handling
+        type(error_t), allocatable, intent(out) :: error
+    end subroutine
+  end interface
+
+
   !> Common output format for writing to the command line
   character(len=*), parameter :: out_fmt = '("#", *(1x, g0))'
 
 contains
+
+    !> Clean memory
+    elemental subroutine dependency_destroy(self)
+        class(dependency_config_t), intent(inout) :: self
+
+        if (allocated(self%name)) deallocate(self%name)
+        if (allocated(self%path)) deallocate(self%path)
+        if (allocated(self%namespace)) deallocate(self%namespace)
+        if (allocated(self%requested_version)) deallocate(self%requested_version)
+        if (allocated(self%git)) deallocate(self%git)
+
+    end subroutine dependency_destroy
+
 
   !> Create a new dependency tree
   subroutine new_dependency_tree(self, verbosity, cache)
@@ -244,258 +545,7 @@ contains
 
   end subroutine new_dependency_node
 
-  !> Write information on instance
-  subroutine info(self, unit, verbosity)
 
-    !> Instance of the dependency configuration
-    class(dependency_node_t), intent(in) :: self
-
-    !> Unit for IO
-    integer, intent(in) :: unit
-
-    !> Verbosity of the printout
-    integer, intent(in), optional :: verbosity
-
-    integer :: pr
-    character(len=*), parameter :: fmt = '("#", 1x, a, t30, a)'
-
-    if (present(verbosity)) then
-      pr = verbosity
-    else
-      pr = 1
-    end if
-
-    !> Call base object info
-    call self%dependency_config_t%info(unit, pr)
-
-    if (allocated(self%version)) then
-      write (unit, fmt) "- version", self%version%s()
-    end if
-
-    if (allocated(self%proj_dir)) then
-      write (unit, fmt) "- dir", self%proj_dir
-    end if
-
-    if (allocated(self%revision)) then
-      write (unit, fmt) "- revision", self%revision
-    end if
-
-    write (unit, fmt) "- done", merge('YES', 'NO ', self%done)
-    write (unit, fmt) "- update", merge('YES', 'NO ', self%update)
-
-  end subroutine info
-
-  !> Add project dependencies, each depth level after each other.
-  !>
-  !> We implement this algorithm in an interative rather than a recursive fashion
-  !> as a choice of design.
-  subroutine add_project(self, package, error)
-    !> Instance of the dependency tree
-    class(dependency_tree_t), intent(inout) :: self
-    !> Project configuration to add
-    type(package_config_t), intent(in) :: package
-    !> Error handling
-    type(error_t), allocatable, intent(out) :: error
-
-    type(dependency_config_t) :: dependency
-    type(dependency_tree_t) :: cached
-    character(len=*), parameter :: root = '.'
-    integer :: id
-
-    if (.not. exists(self%dep_dir)) then
-      call mkdir(self%dep_dir)
-    end if
-
-    ! Create this project as the first dependency node (depth 0)
-    dependency%name = package%name
-    dependency%path = root
-    call self%add(dependency, error)
-    if (allocated(error)) return
-
-    ! Resolve the root project
-    call self%resolve(root, error)
-    if (allocated(error)) return
-
-    ! Add the root project dependencies (depth 1)
-    call self%add(package, root, .true., error)
-    if (allocated(error)) return
-
-    ! After resolving all dependencies, check if we have cached ones to avoid updates
-    if (allocated(self%cache)) then
-      call new_dependency_tree(cached, verbosity=self%verbosity,cache=self%cache)
-      call cached%load_cache(self%cache, error)
-      if (allocated(error)) return
-
-      ! Skip root node
-      do id = 2, cached%ndep
-        cached%dep(id)%cached = .true.
-        call self%add(cached%dep(id), error)
-        if (allocated(error)) return
-      end do
-    end if
-
-    ! Now decent into the dependency tree, level for level
-    do while (.not. self%finished())
-      call self%resolve(root, error)
-      if (allocated(error)) exit
-    end do
-    if (allocated(error)) return
-
-    if (allocated(self%cache)) then
-      call self%dump_cache(self%cache, error)
-      if (allocated(error)) return
-    end if
-
-  end subroutine add_project
-
-  !> Add a project and its dependencies to the dependency tree
-  recursive subroutine add_project_dependencies(self, package, root, main, error)
-    !> Instance of the dependency tree
-    class(dependency_tree_t), intent(inout) :: self
-    !> Project configuration to add
-    type(package_config_t), intent(in) :: package
-    !> Current project root directory
-    character(len=*), intent(in) :: root
-    !> Is the main project
-    logical, intent(in) :: main
-    !> Error handling
-    type(error_t), allocatable, intent(out) :: error
-
-    integer :: ii
-
-    if (allocated(package%dependency)) then
-      call self%add(package%dependency, error)
-      if (allocated(error)) return
-    end if
-
-    if (main) then
-      if (allocated(package%dev_dependency)) then
-        call self%add(package%dev_dependency, error)
-        if (allocated(error)) return
-      end if
-
-      if (allocated(package%executable)) then
-        do ii = 1, size(package%executable)
-          if (allocated(package%executable(ii)%dependency)) then
-            call self%add(package%executable(ii)%dependency, error)
-            if (allocated(error)) exit
-          end if
-        end do
-        if (allocated(error)) return
-      end if
-
-      if (allocated(package%example)) then
-        do ii = 1, size(package%example)
-          if (allocated(package%example(ii)%dependency)) then
-            call self%add(package%example(ii)%dependency, error)
-            if (allocated(error)) exit
-          end if
-        end do
-        if (allocated(error)) return
-      end if
-
-      if (allocated(package%test)) then
-        do ii = 1, size(package%test)
-          if (allocated(package%test(ii)%dependency)) then
-            call self%add(package%test(ii)%dependency, error)
-            if (allocated(error)) exit
-          end if
-        end do
-        if (allocated(error)) return
-      end if
-    end if
-
-    !> Ensure allocation fits
-    call resize(self%dep,self%ndep)
-
-  end subroutine add_project_dependencies
-
-  !> Add a list of dependencies to the dependency tree
-  subroutine add_dependencies(self, dependency, error)
-    !> Instance of the dependency tree
-    class(dependency_tree_t), intent(inout) :: self
-    !> Dependency configuration to add
-    type(dependency_config_t), intent(in) :: dependency(:)
-    !> Error handling
-    type(error_t), allocatable, intent(out) :: error
-
-    integer :: ii, ndep
-
-    ndep = size(self%dep)
-    if (ndep < size(dependency) + self%ndep) then
-      call resize(self%dep, ndep + ndep/2 + size(dependency))
-    end if
-
-    do ii = 1, size(dependency)
-      call self%add(dependency(ii), error)
-      if (allocated(error)) exit
-    end do
-    if (allocated(error)) return
-
-    !> Ensure allocation fits ndep
-    call resize(self%dep,self%ndep)
-
-  end subroutine add_dependencies
-
-  !> Add a single dependency node to the dependency tree
-  !> Dependency nodes contain additional information (version, git, revision)
-  subroutine add_dependency_node(self, dependency, error)
-    !> Instance of the dependency tree
-    class(dependency_tree_t), intent(inout) :: self
-    !> Dependency configuration to add
-    type(dependency_node_t), intent(in) :: dependency
-    !> Error handling
-    type(error_t), allocatable, intent(out) :: error
-
-    integer :: id
-
-    if (self%has_dependency(dependency)) then
-      ! A dependency with this same name is already in the dependency tree.
-      ! Check if it needs to be updated
-      id = self%find(dependency%name)
-
-      ! If this dependency was in the cache, and we're now requesting a different version
-      ! in the manifest, ensure it is marked for update. Otherwise, if we're just querying
-      ! the same dependency from a lower branch of the dependency tree, the existing one from
-      ! the manifest has priority
-      if (dependency%cached) then
-        if (dependency_has_changed(dependency, self%dep(id), self%verbosity, self%unit)) then
-          if (self%verbosity > 0) write (self%unit, out_fmt) "Dependency change detected:", dependency%name
-          self%dep(id)%update = .true.
-        else
-          ! Store the cached one
-          self%dep(id) = dependency
-          self%dep(id)%update = .false.
-        end if
-      end if
-    else
-
-      !> Safety: reallocate if necessary
-      if (size(self%dep)==self%ndep) call resize(self%dep,self%ndep+1)
-
-      ! New dependency: add from scratch
-      self%ndep = self%ndep + 1
-      self%dep(self%ndep) = dependency
-      self%dep(self%ndep)%update = .false.
-    end if
-
-  end subroutine add_dependency_node
-
-  !> Add a single dependency to the dependency tree
-  subroutine add_dependency(self, dependency, error)
-    !> Instance of the dependency tree
-    class(dependency_tree_t), intent(inout) :: self
-    !> Dependency configuration to add
-    type(dependency_config_t), intent(in) :: dependency
-    !> Error handling
-    type(error_t), allocatable, intent(out) :: error
-
-    type(dependency_node_t) :: node
-
-    call new_dependency_node(node, dependency)
-    call add_dependency_node(self, node, error)
-
-  end subroutine add_dependency
 
   !> Update dependency tree
   subroutine update_dependency(self, name, error)
@@ -556,180 +606,9 @@ contains
 
   end subroutine update_tree
 
-  !> Resolve all dependencies in the tree
-  subroutine resolve_dependencies(self, root, error)
-    !> Instance of the dependency tree
-    class(dependency_tree_t), intent(inout) :: self
-    !> Current installation prefix
-    character(len=*), intent(in) :: root
-    !> Error handling
-    type(error_t), allocatable, intent(out) :: error
 
-    type(fpm_global_settings) :: global_settings
-    integer :: ii
 
-    call get_global_settings(global_settings, error)
-    if (allocated(error)) return
 
-    do ii = 1, self%ndep
-      call self%resolve(self%dep(ii), global_settings, root, error)
-      if (allocated(error)) exit
-    end do
-
-    if (allocated(error)) return
-
-  end subroutine resolve_dependencies
-
-  !> Resolve a single dependency node
-  subroutine resolve_dependency(self, dependency, global_settings, root, error)
-    !> Instance of the dependency tree
-    class(dependency_tree_t), intent(inout) :: self
-    !> Dependency configuration to add
-    type(dependency_node_t), intent(inout) :: dependency
-    !> Global configuration settings.
-    type(fpm_global_settings), intent(in) :: global_settings
-    !> Current installation prefix
-    character(len=*), intent(in) :: root
-    !> Error handling
-    type(error_t), allocatable, intent(out) :: error
-
-    type(package_config_t) :: package
-    character(len=:), allocatable :: manifest, proj_dir, revision
-    logical :: fetch
-
-    if (dependency%done) return
-
-    fetch = .false.
-    if (allocated(dependency%proj_dir)) then
-      proj_dir = dependency%proj_dir
-    else if (allocated(dependency%path)) then
-      proj_dir = join_path(root, dependency%path)
-    else if (allocated(dependency%git)) then
-      proj_dir = join_path(self%dep_dir, dependency%name)
-      fetch = .not. exists(proj_dir)
-      if (fetch) then
-        call dependency%git%checkout(proj_dir, error)
-        if (allocated(error)) return
-      end if
-    else
-      call dependency%get_from_registry(proj_dir, global_settings, error)
-      if (allocated(error)) return
-    end if
-
-    if (allocated(dependency%git)) then
-      call git_revision(proj_dir, revision, error)
-      if (allocated(error)) return
-    end if
-
-    manifest = join_path(proj_dir, "fpm.toml")
-    call get_package_data(package, manifest, error)
-    if (allocated(error)) return
-
-    call dependency%register(package, proj_dir, fetch, revision, error)
-    if (allocated(error)) return
-
-    if (self%verbosity > 1) then
-      write (self%unit, out_fmt) &
-        "Dep:", dependency%name, "version", dependency%version%s(), &
-        "at", dependency%proj_dir
-    end if
-
-    call self%add(package, proj_dir, .false., error)
-    if (allocated(error)) return
-
-  end subroutine resolve_dependency
-
-  !> Get a dependency from the registry. Whether the dependency is fetched
-  !> from a local, a custom remote or the official registry is determined
-  !> by the global configuration settings.
-  subroutine get_from_registry(self, target_dir, global_settings, error, downloader_)
-
-    !> Instance of the dependency configuration.
-    class(dependency_node_t), intent(in) :: self
-
-    !> The target directory of the dependency.
-    character(:), allocatable, intent(out) :: target_dir
-
-    !> Global configuration settings.
-    type(fpm_global_settings), intent(in) :: global_settings
-
-    !> Error handling.
-    type(error_t), allocatable, intent(out) :: error
-
-    !> Downloader instance.
-    class(downloader_t), optional, intent(in) :: downloader_
-
-    character(:), allocatable :: cache_path, target_url, tmp_file
-    type(version_t) :: version
-    integer :: stat, unit
-    type(json_object) :: json
-    class(downloader_t), allocatable :: downloader
-
-    if (present(downloader_)) then
-      downloader = downloader_
-    else
-      allocate (downloader)
-    end if
-
-    ! Use local registry if it was specified in the global config file.
-    if (allocated(global_settings%registry_settings%path)) then
-      call self%get_from_local_registry(target_dir, global_settings%registry_settings%path, error); return
-    end if
-
-    ! Include namespace and package name in the cache path.
-    cache_path = join_path(global_settings%registry_settings%cache_path, self%namespace, self%name)
-
-    ! Check cache before downloading from the remote registry if a specific version was requested. When no specific
-    ! version was requested, do network request first to check which is the newest version.
-    if (allocated(self%requested_version)) then
-      if (exists(join_path(cache_path, self%requested_version%s(), 'fpm.toml'))) then
-        print *, "Using cached version of '", join_path(self%namespace, self%name, self%requested_version%s()), "'."
-        target_dir = join_path(cache_path, self%requested_version%s()); return
-      end if
-    end if
-
-    tmp_file = get_temp_filename()
-    open (newunit=unit, file=tmp_file, action='readwrite', iostat=stat)
-    if (stat /= 0) then
-      call fatal_error(error, "Error creating temporary file for downloading package '"//self%name//"'."); return
-    end if
-
-    ! Include namespace and package name in the target url and download package data.
-    target_url = global_settings%registry_settings%url//'packages/'//self%namespace//'/'//self%name
-    call downloader%get_pkg_data(target_url, self%requested_version, tmp_file, json, error)
-    close (unit, status='delete')
-    if (allocated(error)) return
-
-    ! Verify package data and read relevant information.
-    call check_and_read_pkg_data(json, self, target_url, version, error)
-    if (allocated(error)) return
-
-    ! Open new tmp file for downloading the actual package.
-    open (newunit=unit, file=tmp_file, action='readwrite', iostat=stat)
-    if (stat /= 0) then
-      call fatal_error(error, "Error creating temporary file for downloading package '"//self%name//"'."); return
-    end if
-
-    ! Include version number in the cache path. If no cached version exists, download it.
-    cache_path = join_path(cache_path, version%s())
-    if (.not. exists(join_path(cache_path, 'fpm.toml'))) then
-      if (is_dir(cache_path)) call os_delete_dir(os_is_unix(), cache_path)
-      call mkdir(cache_path)
-
-      call downloader%get_file(target_url, tmp_file, error)
-      if (allocated(error)) then
-        close (unit, status='delete'); return
-      end if
-
-      ! Unpack the downloaded package to the final location.
-      call downloader%unpack(tmp_file, cache_path, error)
-      close (unit, status='delete')
-      if (allocated(error)) return
-    end if
-
-    target_dir = cache_path
-
-  end subroutine get_from_registry
 
   subroutine check_and_read_pkg_data(json, node, download_url, version, error)
     type(json_object), intent(inout) :: json
@@ -823,350 +702,7 @@ contains
     end if
   end subroutine
 
-  !> Get the dependency from a local registry.
-  subroutine get_from_local_registry(self, target_dir, registry_path, error)
 
-    !> Instance of the dependency configuration.
-    class(dependency_node_t), intent(in) :: self
-
-    !> The target directory to download the dependency to.
-    character(:), allocatable, intent(out) :: target_dir
-
-    !> The path to the local registry.
-    character(*), intent(in) :: registry_path
-
-    !> Error handling.
-    type(error_t), allocatable, intent(out) :: error
-
-    character(:), allocatable :: path_to_name
-    type(string_t), allocatable :: files(:)
-    type(version_t), allocatable :: versions(:)
-    type(version_t) :: version
-    integer :: i
-
-    path_to_name = join_path(registry_path, self%namespace, self%name)
-
-    if (.not. exists(path_to_name)) then
-      call fatal_error(error, "Dependency resolution of '"//self%name// &
-      & "': Directory '"//path_to_name//"' doesn't exist."); return
-    end if
-
-    call list_files(path_to_name, files)
-    if (size(files) == 0) then
-      call fatal_error(error, "No versions of '"//self%name//"' found in '"//path_to_name//"'."); return
-    end if
-
-    ! Version requested, find it in the cache.
-    if (allocated(self%requested_version)) then
-      do i = 1, size(files)
-        ! Identify directory that matches the version number.
-        if (files(i)%s == join_path(path_to_name, self%requested_version%s()) .and. is_dir(files(i)%s)) then
-          if (.not. exists(join_path(files(i)%s, 'fpm.toml'))) then
-            call fatal_error(error, "'"//files(i)%s//"' is missing an 'fpm.toml' file."); return
-          end if
-          target_dir = files(i)%s; return
-        end if
-      end do
-      call fatal_error(error, "Version '"//self%requested_version%s()//"' not found in '"//path_to_name//"'")
-      return
-    end if
-
-    ! No specific version requested, therefore collect available versions.
-    allocate (versions(0))
-    do i = 1, size(files)
-      if (is_dir(files(i)%s)) then
-        call new_version(version, basename(files(i)%s), error)
-        if (allocated(error)) return
-        versions = [versions, version]
-      end if
-    end do
-
-    if (size(versions) == 0) then
-      call fatal_error(error, "No versions found in '"//path_to_name//"'"); return
-    end if
-
-    ! Find the latest version.
-    version = versions(1)
-    do i = 1, size(versions)
-      if (versions(i) > version) version = versions(i)
-    end do
-
-    path_to_name = join_path(path_to_name, version%s())
-
-    if (.not. exists(join_path(path_to_name, 'fpm.toml'))) then
-      call fatal_error(error, "'"//path_to_name//"' is missing an 'fpm.toml' file."); return
-    end if
-
-    target_dir = path_to_name
-  end subroutine get_from_local_registry
-
-  !> True if dependency is part of the tree
-  pure logical function has_dependency(self, dependency)
-    !> Instance of the dependency tree
-    class(dependency_tree_t), intent(in) :: self
-    !> Dependency configuration to check
-    class(dependency_node_t), intent(in) :: dependency
-
-    has_dependency = self%find(dependency%name) /= 0
-
-  end function has_dependency
-
-  !> Find a dependency in the dependency tree
-  pure function find_name(self, name) result(pos)
-    !> Instance of the dependency tree
-    class(dependency_tree_t), intent(in) :: self
-    !> Dependency configuration to add
-    character(len=*), intent(in) :: name
-    !> Index of the dependency
-    integer :: pos
-
-    integer :: ii
-
-    pos = 0
-    do ii = 1, self%ndep
-      if (name == self%dep(ii)%name) then
-        pos = ii
-        exit
-      end if
-    end do
-
-  end function find_name
-
-  !> Check if we are done with the dependency resolution
-  pure function finished(self)
-    !> Instance of the dependency tree
-    class(dependency_tree_t), intent(in) :: self
-    !> All dependencies are updated
-    logical :: finished
-
-    finished = all(self%dep(:self%ndep)%done)
-
-  end function finished
-
-  !> Update dependency from project manifest
-  subroutine register(self, package, root, fetch, revision, error)
-    !> Instance of the dependency node
-    class(dependency_node_t), intent(inout) :: self
-    !> Package configuration data
-    type(package_config_t), intent(in) :: package
-    !> Project has been fetched
-    logical, intent(in) :: fetch
-    !> Root directory of the project
-    character(len=*), intent(in) :: root
-    !> Git revision of the project
-    character(len=*), intent(in), optional :: revision
-    !> Error handling
-    type(error_t), allocatable, intent(out) :: error
-
-    logical :: update
-
-    update = .false.
-    if (self%name /= package%name) then
-      call fatal_error(error, "Dependency name '"//package%name// &
-        & "' found, but expected '"//self%name//"' instead")
-    end if
-
-    self%version = package%version
-    self%proj_dir = root
-
-    if (allocated(self%git) .and. present(revision)) then
-      self%revision = revision
-      if (.not. fetch) then
-        ! Change in revision ID was checked already. Only update if ALL git information is missing
-        update = .not. allocated(self%git%url)
-      end if
-    end if
-
-    if (update) self%update = update
-    self%done = .true.
-
-  end subroutine register
-
-  !> Read dependency tree from file
-  subroutine load_cache_from_file(self, file, error)
-    !> Instance of the dependency tree
-    class(dependency_tree_t), intent(inout) :: self
-    !> File name
-    character(len=*), intent(in) :: file
-    !> Error handling
-    type(error_t), allocatable, intent(out) :: error
-
-    integer :: unit
-    logical :: exist
-
-    inquire (file=file, exist=exist)
-    if (.not. exist) return
-
-    open (file=file, newunit=unit)
-    call self%load_cache(unit, error)
-    close (unit)
-  end subroutine load_cache_from_file
-
-  !> Read dependency tree from file
-  subroutine load_cache_from_unit(self, unit, error)
-    !> Instance of the dependency tree
-    class(dependency_tree_t), intent(inout) :: self
-    !> File name
-    integer, intent(in) :: unit
-    !> Error handling
-    type(error_t), allocatable, intent(out) :: error
-
-    type(toml_error), allocatable :: parse_error
-    type(toml_table), allocatable :: table
-
-    call toml_load(table, unit, error=parse_error)
-
-    if (allocated(parse_error)) then
-      allocate (error)
-      call move_alloc(parse_error%message, error%message)
-      return
-    end if
-
-    call self%load_cache(table, error)
-    if (allocated(error)) return
-
-  end subroutine load_cache_from_unit
-
-  !> Read dependency tree from TOML data structure
-  subroutine load_cache_from_toml(self, table, error)
-    !> Instance of the dependency tree
-    class(dependency_tree_t), intent(inout) :: self
-    !> Data structure
-    type(toml_table), intent(inout) :: table
-    !> Error handling
-    type(error_t), allocatable, intent(out) :: error
-
-    integer :: ndep, ii
-    logical :: is_unix
-    character(len=:), allocatable :: version, url, obj, rev, proj_dir
-    type(toml_key), allocatable :: list(:)
-    type(toml_table), pointer :: ptr
-
-    call table%get_keys(list)
-
-    ndep = size(self%dep)
-    if (ndep < size(list) + self%ndep) then
-      call resize(self%dep, ndep + ndep/2 + size(list))
-    end if
-
-    is_unix = get_os_type() /= OS_WINDOWS
-
-    do ii = 1, size(list)
-      call get_value(table, list(ii)%key, ptr)
-      call get_value(ptr, "version", version)
-      call get_value(ptr, "proj-dir", proj_dir)
-      call get_value(ptr, "git", url)
-      call get_value(ptr, "obj", obj)
-      call get_value(ptr, "rev", rev)
-      if (.not. allocated(proj_dir)) cycle
-      self%ndep = self%ndep + 1
-      associate (dep => self%dep(self%ndep))
-        dep%name = list(ii)%key
-        if (is_unix) then
-          dep%proj_dir = proj_dir
-        else
-          dep%proj_dir = windows_path(proj_dir)
-        end if
-        dep%done = .false.
-        if (allocated(version)) then
-          if (.not. allocated(dep%version)) allocate (dep%version)
-          call new_version(dep%version, version, error)
-          if (allocated(error)) exit
-        end if
-        if (allocated(url)) then
-          if (allocated(obj)) then
-            dep%git = git_target_revision(url, obj)
-          else
-            dep%git = git_target_default(url)
-          end if
-          if (allocated(rev)) then
-            dep%revision = rev
-          end if
-        else
-          dep%path = proj_dir
-        end if
-      end associate
-    end do
-    if (allocated(error)) return
-
-    self%ndep = size(list)
-  end subroutine load_cache_from_toml
-
-  !> Write dependency tree to file
-  subroutine dump_cache_to_file(self, file, error)
-    !> Instance of the dependency tree
-    class(dependency_tree_t), intent(inout) :: self
-    !> File name
-    character(len=*), intent(in) :: file
-    !> Error handling
-    type(error_t), allocatable, intent(out) :: error
-
-    integer :: unit
-
-    open (file=file, newunit=unit)
-    call self%dump_cache(unit, error)
-    close (unit)
-    if (allocated(error)) return
-
-  end subroutine dump_cache_to_file
-
-  !> Write dependency tree to file
-  subroutine dump_cache_to_unit(self, unit, error)
-    !> Instance of the dependency tree
-    class(dependency_tree_t), intent(inout) :: self
-    !> Formatted unit
-    integer, intent(in) :: unit
-    !> Error handling
-    type(error_t), allocatable, intent(out) :: error
-
-    type(toml_table) :: table
-
-    table = toml_table()
-    call self%dump_cache(table, error)
-
-    write (unit, '(a)') toml_serialize(table)
-
-  end subroutine dump_cache_to_unit
-
-  !> Write dependency tree to TOML datastructure
-  subroutine dump_cache_to_toml(self, table, error)
-    !> Instance of the dependency tree
-    class(dependency_tree_t), intent(inout) :: self
-    !> Data structure
-    type(toml_table), intent(inout) :: table
-    !> Error handling
-    type(error_t), allocatable, intent(out) :: error
-
-    integer :: ii
-    type(toml_table), pointer :: ptr
-    character(len=:), allocatable :: proj_dir
-
-    do ii = 1, self%ndep
-      associate (dep => self%dep(ii))
-        call add_table(table, dep%name, ptr)
-        if (.not. associated(ptr)) then
-          call fatal_error(error, "Cannot create entry for "//dep%name)
-          exit
-        end if
-        if (allocated(dep%version)) then
-          call set_value(ptr, "version", dep%version%s())
-        end if
-        proj_dir = canon_path(dep%proj_dir)
-        call set_value(ptr, "proj-dir", proj_dir)
-        if (allocated(dep%git)) then
-          call set_value(ptr, "git", dep%git%url)
-          if (allocated(dep%git%object)) then
-            call set_value(ptr, "obj", dep%git%object)
-          end if
-          if (allocated(dep%revision)) then
-            call set_value(ptr, "rev", dep%revision)
-          end if
-        end if
-      end associate
-    end do
-    if (allocated(error)) return
-
-  end subroutine dump_cache_to_toml
 
   !> Reallocate a list of dependencies
   pure subroutine resize_dependency_node(var, n)
@@ -1202,184 +738,6 @@ contains
 
   end subroutine resize_dependency_node
 
-  !> Check if a dependency node has changed
-  logical function dependency_has_changed(cached, manifest, verbosity, iunit) result(has_changed)
-    !> Two instances of the same dependency to be compared
-    type(dependency_node_t), intent(in) :: cached, manifest
-
-    !> Log verbosity
-    integer, intent(in) :: verbosity, iunit
-
-    integer :: ip
-
-    has_changed = .true.
-
-    !> All the following entities must be equal for the dependency to not have changed
-    if (manifest_has_changed(cached=cached, manifest=manifest, verbosity=verbosity, iunit=iunit)) return
-
-    !> For now, only perform the following checks if both are available. A dependency in cache.toml
-    !> will always have this metadata; a dependency from fpm.toml which has not been fetched yet
-    !> may not have it
-    if (allocated(cached%version) .and. allocated(manifest%version)) then
-      if (cached%version /= manifest%version) then
-        if (verbosity > 1) write (iunit, out_fmt) "VERSION has changed: "//cached%version%s()//" vs. "//manifest%version%s()
-        return
-      end if
-    else
-      if (verbosity > 1) write (iunit, out_fmt) "VERSION has changed presence "
-    end if
-    if (allocated(cached%revision) .and. allocated(manifest%revision)) then
-      if (cached%revision /= manifest%revision) then
-        if (verbosity > 1) write (iunit, out_fmt) "REVISION has changed: "//cached%revision//" vs. "//manifest%revision
-        return
-      end if
-    else
-      if (verbosity > 1) write (iunit, out_fmt) "REVISION has changed presence "
-    end if
-    if (allocated(cached%proj_dir) .and. allocated(manifest%proj_dir)) then
-      if (cached%proj_dir /= manifest%proj_dir) then
-        if (verbosity > 1) write (iunit, out_fmt) "PROJECT DIR has changed: "//cached%proj_dir//" vs. "//manifest%proj_dir
-        return
-      end if
-    else
-      if (verbosity > 1) write (iunit, out_fmt) "PROJECT DIR has changed presence "
-    end if
-    if (allocated(cached%preprocess) .eqv. allocated(manifest%preprocess)) then
-      if (allocated(cached%preprocess)) then
-          if (size(cached%preprocess) /= size(manifest%preprocess)) then
-            if (verbosity > 1) write (iunit, out_fmt) "PREPROCESS has changed size"
-            return
-          end if
-          do ip=1,size(cached%preprocess)
-             if (.not.(cached%preprocess(ip) == manifest%preprocess(ip))) then
-                if (verbosity > 1) write (iunit, out_fmt) "PREPROCESS config has changed"
-                return
-             end if
-          end do
-      endif
-    else
-      if (verbosity > 1) write (iunit, out_fmt) "PREPROCESS has changed presence "
-      return
-    end if
-
-    !> All checks passed: the two dependencies have no differences
-    has_changed = .false.
-
-  end function dependency_has_changed
-
-  !> Check that two dependency nodes are equal
-  logical function dependency_node_is_same(this,that)
-      class(dependency_node_t), intent(in) :: this
-      class(serializable_t), intent(in) :: that
-
-      dependency_node_is_same = .false.
-
-      select type (other=>that)
-         type is (dependency_node_t)
-
-            ! Base class must match
-            if (.not.(this%dependency_config_t==other%dependency_config_t)) return
-
-            ! Extension must match
-            if (.not.(this%done  .eqv.other%done)) return
-            if (.not.(this%update.eqv.other%update)) return
-            if (.not.(this%cached.eqv.other%cached)) return
-            if (.not.(this%proj_dir==other%proj_dir)) return
-            if (.not.(this%revision==other%revision)) return
-
-            if (.not.(allocated(this%version).eqv.allocated(other%version))) return
-               if (allocated(this%version)) then
-              if (.not.(this%version==other%version)) return
-            endif
-
-         class default
-            ! Not the same type
-            return
-      end select
-
-      !> All checks passed!
-      dependency_node_is_same = .true.
-
-  end function dependency_node_is_same
-
-    !> Dump dependency to toml table
-    subroutine node_dump_to_toml(self, table, error)
-
-        !> Instance of the serializable object
-        class(dependency_node_t), intent(inout) :: self
-
-        !> Data structure
-        type(toml_table), intent(inout) :: table
-
-        !> Error handling
-        type(error_t), allocatable, intent(out) :: error
-
-        integer :: ierr
-
-        ! Dump parent class
-        call self%dependency_config_t%dump_to_toml(table, error)
-        if (allocated(error)) return
-
-        if (allocated(self%version)) then
-            call set_string(table, "version", self%version%s(), error,'dependency_node_t')
-            if (allocated(error)) return
-        endif
-        call set_string(table, "proj-dir", self%proj_dir, error, 'dependency_node_t')
-        if (allocated(error)) return
-        call set_string(table, "revision", self%revision, error, 'dependency_node_t')
-        if (allocated(error)) return
-        call set_value(table, "done", self%done, error, 'dependency_node_t')
-        if (allocated(error)) return
-        call set_value(table, "update", self%update, error, 'dependency_node_t')
-        if (allocated(error)) return
-        call set_value(table, "cached", self%cached, error, 'dependency_node_t')
-        if (allocated(error)) return
-
-    end subroutine node_dump_to_toml
-
-    !> Read dependency from toml table (no checks made at this stage)
-    subroutine node_load_from_toml(self, table, error)
-
-        !> Instance of the serializable object
-        class(dependency_node_t), intent(inout) :: self
-
-        !> Data structure
-        type(toml_table), intent(inout) :: table
-
-        !> Error handling
-        type(error_t), allocatable, intent(out) :: error
-
-        !> Local variables
-        character(len=:), allocatable :: version
-        integer :: ierr
-
-        call destroy_dependency_node(self)
-
-        ! Load parent class
-        call self%dependency_config_t%load_from_toml(table, error)
-        if (allocated(error)) return
-
-        call get_value(table, "done", self%done, error, 'dependency_node_t')
-        if (allocated(error)) return
-        call get_value(table, "update", self%update, error, 'dependency_node_t')
-        if (allocated(error)) return
-        call get_value(table, "cached", self%cached, error, 'dependency_node_t')
-        if (allocated(error)) return
-
-        call get_value(table, "proj-dir", self%proj_dir)
-        call get_value(table, "revision", self%revision)
-
-        call get_value(table, "version", version)
-        if (allocated(version)) then
-            allocate(self%version)
-            call new_version(self%version, version, error)
-            if (allocated(error)) then
-                error%message = 'dependency_node_t: version error from TOML table - '//error%message
-                return
-            endif
-        end if
-
-    end subroutine node_load_from_toml
 
     !> Destructor
     elemental subroutine destroy_dependency_node(self)
@@ -1388,7 +746,8 @@ contains
 
         integer :: ierr
 
-        call dependency_destroy(self)
+        ! Destroy the parent type
+        call dependency_destroy(self%dependency_config_t)
 
         deallocate(self%version,stat=ierr)
         deallocate(self%proj_dir,stat=ierr)
@@ -1398,159 +757,6 @@ contains
         self%cached = .false.
 
     end subroutine destroy_dependency_node
-
-  !> Check that two dependency trees are equal
-  logical function dependency_tree_is_same(this,that)
-    class(dependency_tree_t), intent(in) :: this
-    class(serializable_t), intent(in) :: that
-
-    integer :: ii
-
-    dependency_tree_is_same = .false.
-
-    select type (other=>that)
-       type is (dependency_tree_t)
-
-          if (.not.(this%unit==other%unit)) return
-          if (.not.(this%verbosity==other%verbosity)) return
-          if (.not.(this%dep_dir==other%dep_dir)) return
-          if (.not.(this%ndep==other%ndep)) return
-          if (.not.(allocated(this%dep).eqv.allocated(other%dep))) return
-          if (allocated(this%dep)) then
-             if (.not.(size(this%dep)==size(other%dep))) return
-             do ii = 1, size(this%dep)
-                if (.not.(this%dep(ii)==other%dep(ii))) return
-             end do
-          endif
-          if (.not.(this%cache==other%cache)) return
-
-       class default
-          ! Not the same type
-          return
-    end select
-
-    !> All checks passed!
-    dependency_tree_is_same = .true.
-
-  end function dependency_tree_is_same
-
-    !> Dump dependency to toml table
-    subroutine tree_dump_to_toml(self, table, error)
-
-        !> Instance of the serializable object
-        class(dependency_tree_t), intent(inout) :: self
-
-        !> Data structure
-        type(toml_table), intent(inout) :: table
-
-        !> Error handling
-        type(error_t), allocatable, intent(out) :: error
-
-        integer :: ierr, ii
-        type(toml_table), pointer :: ptr_deps,ptr
-        character(27) :: unnamed
-
-        call set_value(table, "unit", self%unit, error, 'dependency_tree_t')
-        if (allocated(error)) return
-        call set_value(table, "verbosity", self%verbosity, error, 'dependency_tree_t')
-        if (allocated(error)) return
-        call set_string(table, "dep-dir", self%dep_dir, error, 'dependency_tree_t')
-        if (allocated(error)) return
-        call set_string(table, "cache", self%cache, error, 'dependency_tree_t')
-        if (allocated(error)) return
-        call set_value(table, "ndep", self%ndep, error, 'dependency_tree_t')
-        if (allocated(error)) return
-
-        if (allocated(self%dep)) then
-
-           ! Create dependency table
-           call add_table(table, "dependencies", ptr_deps)
-           if (.not. associated(ptr_deps)) then
-              call fatal_error(error, "dependency_tree_t cannot create dependency table ")
-              return
-           end if
-
-           do ii = 1, size(self%dep)
-              associate (dep => self%dep(ii))
-
-                 !> Because dependencies are named, fallback if this has no name
-                 !> So, serialization will work regardless of size(self%dep) == self%ndep
-                 if (len_trim(dep%name)==0) then
-                    write(unnamed,1) ii
-                    call add_table(ptr_deps, trim(unnamed), ptr)
-                 else
-                    call add_table(ptr_deps, dep%name, ptr)
-                 end if
-                 if (.not. associated(ptr)) then
-                    call fatal_error(error, "dependency_tree_t cannot create entry for dependency "//dep%name)
-                    return
-                 end if
-                 call dep%dump_to_toml(ptr, error)
-                 if (allocated(error)) return
-              end associate
-           end do
-
-        endif
-
-        1 format('UNNAMED_DEPENDENCY_',i0)
-
-    end subroutine tree_dump_to_toml
-
-    !> Read dependency from toml table (no checks made at this stage)
-    subroutine tree_load_from_toml(self, table, error)
-
-        !> Instance of the serializable object
-        class(dependency_tree_t), intent(inout) :: self
-
-        !> Data structure
-        type(toml_table), intent(inout) :: table
-
-        !> Error handling
-        type(error_t), allocatable, intent(out) :: error
-
-        !> Local variables
-        type(toml_key), allocatable :: keys(:),dep_keys(:)
-        type(toml_table), pointer :: ptr_deps,ptr
-        integer :: ii, jj, ierr
-
-        call table%get_keys(keys)
-
-        call get_value(table, "unit", self%unit, error, 'dependency_tree_t')
-        if (allocated(error)) return
-        call get_value(table, "verbosity", self%verbosity, error, 'dependency_tree_t')
-        if (allocated(error)) return
-        call get_value(table, "ndep", self%ndep, error, 'dependency_tree_t')
-        if (allocated(error)) return
-        call get_value(table, "dep-dir", self%dep_dir)
-        call get_value(table, "cache", self%cache)
-
-        find_deps_table: do ii = 1, size(keys)
-            if (keys(ii)%key=="dependencies") then
-
-               call get_value(table, keys(ii), ptr_deps)
-               if (.not.associated(ptr_deps)) then
-                  call fatal_error(error,'dependency_tree_t: error retrieving dependency table from TOML table')
-                  return
-               end if
-
-               !> Read all dependencies
-               call ptr_deps%get_keys(dep_keys)
-               call resize(self%dep, size(dep_keys))
-
-               do jj = 1, size(dep_keys)
-
-                   call get_value(ptr_deps, dep_keys(jj), ptr)
-                   call self%dep(jj)%load_from_toml(ptr, error)
-                   if (allocated(error)) return
-
-               end do
-
-               exit find_deps_table
-
-            endif
-        end do find_deps_table
-
-    end subroutine tree_load_from_toml
 
 
 end module fpm_dependency

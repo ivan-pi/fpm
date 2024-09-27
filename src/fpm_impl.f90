@@ -15,7 +15,7 @@ use fpm_dependency, only: new_dependency_tree
 use fpm_filesystem, only: is_dir, basename, join_path, exists, run, &
                           os_delete_dir, filewrite, list_files
 
-use fpm_model, only: srcfile_t, show_model, &
+use fpm_model, only: srcfile_t, &
                     FPM_SCOPE_UNKNOWN, FPM_SCOPE_LIB, FPM_SCOPE_DEP, &
                     FPM_SCOPE_APP, FPM_SCOPE_EXAMPLE, FPM_SCOPE_TEST
 use fpm_compiler, only: new_compiler, new_archiver, set_cpp_preprocessor_flags
@@ -462,7 +462,7 @@ if(settings%list)then
         write(stderr,*) targets(i)%ptr%output_file
     enddo
 else if (settings%show_model) then
-    call show_model(model)
+    call model%show()
 else
     call build_package(targets,model,verbose=settings%verbose)
 endif

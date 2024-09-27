@@ -626,10 +626,12 @@ function git_metadata(what) result(returned)
 end function git_metadata
 
 subroutine create_verified_basic_manifest(filename)
+
 !> create a basic but verified default manifest file
 use fpm_toml, only : toml_table, toml_serialize, set_value
-use fpm_manifest_package, only : package_config_t, new_package
+use fpm_manifest, only : package_config_t, new_package
 use fpm_error, only : error_t
+
 implicit none
 character(len=*),intent(in) :: filename
    type(toml_table)            :: table

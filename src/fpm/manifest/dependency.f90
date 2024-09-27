@@ -22,69 +22,59 @@
 !> build the target declaring the dependency.
 !> Resolving a dependency will result in obtaining a new package configuration
 !> data for the respective project.
-module fpm_manifest_dependency
+submodule (fpm_manifest) fpm_manifest_dependency
+
     use fpm_error, only: error_t, syntax_error, fatal_error
     use fpm_git, only: git_target_t, git_target_tag, git_target_branch, &
         & git_target_revision, git_target_default, git_matches_manifest
-    use fpm_toml, only: toml_table, toml_key, toml_stat, get_value, check_keys, serializable_t, add_table, &
+    
+    use fpm_toml, only: toml_key, toml_stat, get_value, check_keys, serializable_t, add_table, &
         & set_value, set_string
+
     use fpm_filesystem, only: windows_path, join_path
     use fpm_environment, only: get_os_type, OS_WINDOWS
-    use fpm_manifest_metapackages, only: metapackage_config_t, is_meta_package, new_meta_config, &
-            metapackage_request_t, new_meta_request
+
+    use fpm_meta_request, only: new_meta_request, is_meta_package
+
     use fpm_versioning, only: version_t, new_version
     use fpm_strings, only: string_t
-    use fpm_manifest_preprocess
-    implicit none
-    private
+    !use fpm_manifest_preprocess
+    use fpm_dependency, only: dependency_destroy
 
-    public :: dependency_config_t, new_dependency, new_dependencies, manifest_has_changed, &
-        & dependency_destroy, resize
-
-    !> Configuration meta data for a dependency
-    type, extends(serializable_t) :: dependency_config_t
-
-        !> Name of the dependency
-        character(len=:), allocatable :: name
-
-        !> Local target
-        character(len=:), allocatable :: path
-
-        !> Namespace which the dependency belongs to.
-        !> Enables multiple dependencies with the same name.
-        !> Required for dependencies that are obtained via the official registry.
-        character(len=:), allocatable :: namespace
-
-        !> The requested version of the dependency.
-        !> The latest version is used if not specified.
-        type(version_t), allocatable :: requested_version
-
-        !> Requested macros for the dependency
-        type(preprocess_config_t), allocatable :: preprocess(:)
-
-        !> Git descriptor
-        type(git_target_t), allocatable :: git
-
-    contains
-
-        !> Print information on this instance
-        procedure :: info
-
-        !> Serialization interface
-        procedure :: serializable_is_same => dependency_is_same
-        procedure :: dump_to_toml
-        procedure :: load_from_toml
-
-    end type dependency_config_t
+!    public :: dependency_config_t, new_dependency, new_dependencies, manifest_has_changed, &
+!        & dependency_destroy, resize
 
     !> Common output format for writing to the command line
     character(len=*), parameter :: out_fmt = '("#", *(1x, g0))'
 
-    interface resize
-        module procedure resize_dependency_config
-    end interface resize
-
 contains
+
+    !> Check if two dependency configurations are different
+    module function manifest_has_changed(cached, manifest, verbosity, iunit) result(has_changed)
+
+        !> Two instances of the dependency configuration
+        class(dependency_config_t), intent(in) :: cached, manifest
+
+        !> Log verbosity
+        integer, intent(in) :: verbosity, iunit
+
+        logical :: has_changed
+
+        has_changed = .true.
+
+        !> Perform all checks
+        if (allocated(cached%git).neqv.allocated(manifest%git)) then
+            if (verbosity>1) write(iunit,out_fmt) "GIT presence has changed. "
+            return
+        endif
+        if (allocated(cached%git)) then
+            if (.not.git_matches_manifest(cached%git,manifest%git,verbosity,iunit)) return
+        end if
+
+        !> All checks passed! The two instances are equal
+        has_changed = .false.
+
+    end function manifest_has_changed
 
     !> Construct a new dependency configuration from a TOML data structure
     subroutine new_dependency(self, table, root, error)
@@ -243,7 +233,7 @@ contains
     end subroutine check
 
     !> Construct new dependency array from a TOML data structure
-    subroutine new_dependencies(deps, table, root, meta, error)
+    module subroutine new_dependencies(deps, table, root, meta, error)
 
         !> Instance of the dependency configuration
         type(dependency_config_t), allocatable, intent(out) :: deps(:)
@@ -326,7 +316,7 @@ contains
     end subroutine new_dependencies
 
     !> Write information on instance
-    subroutine info(self, unit, verbosity)
+    module subroutine dependency_info(self, unit, verbosity)
 
         !> Instance of the dependency configuration
         class(dependency_config_t), intent(in) :: self
@@ -361,47 +351,11 @@ contains
             write (unit, fmt) "- path", self%path
         end if
 
-    end subroutine info
+    end subroutine dependency_info
 
-    !> Check if two dependency configurations are different
-    logical function manifest_has_changed(cached, manifest, verbosity, iunit) result(has_changed)
-
-        !> Two instances of the dependency configuration
-        class(dependency_config_t), intent(in) :: cached, manifest
-
-        !> Log verbosity
-        integer, intent(in) :: verbosity, iunit
-
-        has_changed = .true.
-
-        !> Perform all checks
-        if (allocated(cached%git).neqv.allocated(manifest%git)) then
-            if (verbosity>1) write(iunit,out_fmt) "GIT presence has changed. "
-            return
-        endif
-        if (allocated(cached%git)) then
-            if (.not.git_matches_manifest(cached%git,manifest%git,verbosity,iunit)) return
-        end if
-
-        !> All checks passed! The two instances are equal
-        has_changed = .false.
-
-    end function manifest_has_changed
-
-    !> Clean memory
-    elemental subroutine dependency_destroy(self)
-        class(dependency_config_t), intent(inout) :: self
-
-        if (allocated(self%name)) deallocate(self%name)
-        if (allocated(self%path)) deallocate(self%path)
-        if (allocated(self%namespace)) deallocate(self%namespace)
-        if (allocated(self%requested_version)) deallocate(self%requested_version)
-        if (allocated(self%git)) deallocate(self%git)
-
-    end subroutine dependency_destroy
 
     !> Check that two dependency configs are equal
-    logical function dependency_is_same(this,that)
+    module logical function dependency_is_same(this,that)
         class(dependency_config_t), intent(in) :: this
         class(serializable_t), intent(in) :: that
 
@@ -434,7 +388,7 @@ contains
     end function dependency_is_same
 
     !> Dump dependency to toml table
-    subroutine dump_to_toml(self, table, error)
+    module subroutine dependency_dump(self, table, error)
 
         !> Instance of the serializable object
         class(dependency_config_t), intent(inout) :: self
@@ -445,8 +399,6 @@ contains
         !> Error handling
         type(toml_table), pointer :: ptr
         type(error_t), allocatable, intent(out) :: error
-
-        integer :: ierr
 
         call set_string(table, "name", self%name, error, 'dependency_config_t')
         if (allocated(error)) return
@@ -466,10 +418,10 @@ contains
             if (allocated(error)) return
         endif
 
-    end subroutine dump_to_toml
+    end subroutine dependency_dump
 
     !> Read dependency from toml table (no checks made at this stage)
-    subroutine load_from_toml(self, table, error)
+    module subroutine dependency_load(self, table, error)
 
         !> Instance of the serializable object
         class(dependency_config_t), intent(inout) :: self
@@ -516,10 +468,10 @@ contains
             end if
         end do add_git
 
-    end subroutine load_from_toml
+    end subroutine dependency_load
 
     !> Reallocate a list of dependencies
-    pure subroutine resize_dependency_config(var, n)
+    pure module subroutine resize_dependency_config(var, n)
         !> Instance of the array to be resized
         type(dependency_config_t), allocatable, intent(inout) :: var(:)
         !> Dimension of the final array size
@@ -553,4 +505,4 @@ contains
     end subroutine resize_dependency_config
 
 
-end module fpm_manifest_dependency
+end submodule fpm_manifest_dependency

@@ -14,33 +14,20 @@
 !>link = ["lib"]
 !>[test.dependencies]
 !>```
-module fpm_manifest_test
-    use fpm_manifest_dependency, only : new_dependencies
-    use fpm_manifest_executable, only : executable_config_t
-    use fpm_error, only : error_t, syntax_error, bad_name_error
-    use fpm_toml, only : toml_table, toml_key, toml_stat, get_value, get_list
+submodule (fpm_manifest) fpm_manifest_test
+    
+    use fpm_error, only : syntax_error, bad_name_error
+    use fpm_toml, only : toml_key, toml_stat, get_value, get_list
+    
     implicit none
-    private
 
-    public :: test_config_t, new_test
-
-
-    !> Configuation meta data for an test
-    type, extends(executable_config_t) :: test_config_t
-
-    contains
-
-        !> Print information on this instance
-        procedure :: info
-
-    end type test_config_t
-
+    !public :: test_config_t, new_test
 
 contains
 
 
     !> Construct a new test configuration from a TOML data structure
-    subroutine new_test(self, table, error)
+    module subroutine new_test(self, table, error)
 
         !> Instance of the test configuration
         type(test_config_t), intent(out) :: self
@@ -125,7 +112,7 @@ contains
 
 
     !> Write information on instance
-    subroutine info(self, unit, verbosity)
+    module subroutine test_info(self, unit, verbosity)
 
         !> Instance of the test configuration
         class(test_config_t), intent(in) :: self
@@ -172,7 +159,7 @@ contains
             end do
         end if
 
-    end subroutine info
+    end subroutine test_info
 
 
-end module fpm_manifest_test
+end submodule fpm_manifest_test

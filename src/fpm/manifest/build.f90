@@ -9,52 +9,17 @@
 !>auto-tests = bool
 !>link = ["lib"]
 !>```
-module fpm_manifest_build
+submodule (fpm_manifest) fpm_manifest_build
     use fpm_error, only : error_t, syntax_error, fatal_error
     use fpm_strings, only : string_t, len_trim, is_valid_module_prefix, operator(==)
-    use fpm_toml, only : toml_table, toml_key, toml_stat, get_value, get_list, serializable_t, &
+    use fpm_toml, only : toml_key, toml_stat, get_value, get_list, serializable_t, &
                          set_value, set_string, set_list
+
+    use fpm_manifest, only: build_config_t
+
     implicit none
-    private
 
-    public :: build_config_t, new_build_config
-
-    !> Configuration data for build
-    type, extends(serializable_t) :: build_config_t
-
-        !> Automatic discovery of executables
-        logical :: auto_executables = .true.
-
-        !> Automatic discovery of examples
-        logical :: auto_examples = .true.
-
-        !> Automatic discovery of tests
-        logical :: auto_tests = .true.
-
-        !> Enforcing of package module names
-        logical :: module_naming = .false.
-        type(string_t) :: module_prefix
-
-        !> Libraries to link against
-        type(string_t), allocatable :: link(:)
-
-        !> External modules to use
-        type(string_t), allocatable :: external_modules(:)
-
-    contains
-
-        !> Print information on this instance
-        procedure :: info
-
-        !> Serialization interface
-        procedure :: serializable_is_same => build_conf_is_same
-        procedure :: dump_to_toml
-        procedure :: load_from_toml
-
-    end type build_config_t
-
-    character(*), parameter, private :: class_name = 'build_config_t'
-
+    character(*), parameter :: class_name = 'build_config_t'
 
 contains
 
@@ -176,7 +141,7 @@ contains
 
 
     !> Write information on build configuration instance
-    subroutine info(self, unit, verbosity)
+    module subroutine build_info(self, unit, verbosity)
 
         !> Instance of the build configuration
         class(build_config_t), intent(in) :: self
@@ -216,16 +181,16 @@ contains
             end do
         end if
 
-    end subroutine info
+    end subroutine build_info
 
     !> Check that two dependency trees are equal
-    logical function build_conf_is_same(this,that)
+    logical function build_is_same(this,that)
       class(build_config_t), intent(in) :: this
       class(serializable_t), intent(in) :: that
 
-      build_conf_is_same = .false.
+      build_is_same = .false.
 
-      select type (other=>that)
+      select type (other => that)
          type is (build_config_t)
 
              if (this%auto_executables.neqv.other%auto_executables) return
@@ -242,12 +207,12 @@ contains
       end select
 
       !> All checks passed!
-      build_conf_is_same = .true.
+      build_is_same = .true.
 
-    end function build_conf_is_same
+    end function build_is_same
 
     !> Dump build config to toml table
-    subroutine dump_to_toml(self, table, error)
+    module subroutine build_dump(self, table, error)
 
         !> Instance of the serializable object
         class(build_config_t), intent(inout) :: self
@@ -278,10 +243,10 @@ contains
         call set_list(table, "external-modules", self%external_modules, error)
         if (allocated(error)) return
 
-    end subroutine dump_to_toml
+    end subroutine build_dump
 
     !> Read build config from toml table (no checks made at this stage)
-    subroutine load_from_toml(self, table, error)
+    module subroutine build_load(self, table, error)
 
         !> Instance of the serializable object
         class(build_config_t), intent(inout) :: self
@@ -321,7 +286,6 @@ contains
         call get_list(table, "external-modules", self%external_modules, error)
         if (allocated(error)) return
 
-    end subroutine load_from_toml
+    end subroutine build_load
 
-
-end module fpm_manifest_build
+end submodule fpm_manifest_build
